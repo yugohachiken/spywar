@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRoomId(id) {
+      return id is string && id.size() >= 4 && id.size() <= 16 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    // Connection test path
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Online multiplayer game rooms (Secured by 6-character cryptographic room code)
+    match /rooms/{roomId} {
+      allow get: if isValidRoomId(roomId);
+      allow list: if false;
+
+      allow create: if isValidRoomId(roomId)
+        && incoming().roomId == roomId
+        && incoming().status in ['waiting', 'playing']
+        && incoming().hostName is string && incoming().hostName.size() <= 64;
+
+      allow update: if isValidRoomId(roomId)
+        && incoming().roomId == roomId;
+
+      allow delete: if isValidRoomId(roomId);
+    }
+  }
+}

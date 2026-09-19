@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "An online multiplayer game room for Spywar",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "description": "Unique 6-character room code"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["waiting", "playing", "ended"],
+          "description": "Match status of the room"
+        },
+        "hostUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the host player (Player 1)"
+        },
+        "hostName": {
+          "type": "string",
+          "description": "Display name of the host"
+        },
+        "guestUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the guest player (Player 2)"
+        },
+        "guestName": {
+          "type": "string",
+          "description": "Display name of the guest"
+        },
+        "currentRound": {
+          "type": "number",
+          "description": "Current round number"
+        },
+        "activePlayerIndex": {
+          "type": "number",
+          "description": "Index of active player (0 for P1, 1 for P2)"
+        },
+        "currentPhase": {
+          "type": "string",
+          "description": "Current turn phase"
+        },
+        "actionCounter": {
+          "type": "number",
+          "description": "Monotonically increasing counter of moves executed"
+        },
+        "gameOver": {
+          "type": "boolean",
+          "description": "Flag indicating if the game has concluded"
+        },
+        "winner": {
+          "type": "string",
+          "description": "Winner player name or empty"
+        },
+        "winReason": {
+          "type": "string",
+          "description": "Reason for victory or game end"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Room creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Room last update timestamp"
+        }
+      },
+      "required": ["roomId", "status", "hostUid", "hostName", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Collection of multiplayer match rooms"
+    }
+  }
+}

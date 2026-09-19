@@ -5,7 +5,9 @@ import { AbilityTestLab } from './components/AbilityTestLab';
 import { GodotCodeViewer } from './components/GodotCodeViewer';
 import { BatchSimulator } from './components/BatchSimulator';
 import { AFFILIATION_CARDS, LOCATION_CARDS, OPERATIVE_CARDS, SUPPORT_CARDS, MASTER_MISSIONS } from './engine/cardManifest';
-import { Shield, Swords, FileCode, BarChart3, BookOpen, Sparkles, Terminal, Activity } from 'lucide-react';
+import { Shield, Swords, FileCode, BarChart3, BookOpen, Sparkles, Terminal, Activity, ZoomIn } from 'lucide-react';
+import { CardZoomProvider } from './context/CardZoomContext';
+import { ZoomedCardModal } from './components/ZoomedCardModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'board' | 'testlab' | 'godot' | 'batch' | 'dossier'>('board');
@@ -23,8 +25,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
-      {/* Top Navigation Bar */}
+    <CardZoomProvider>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
+        {/* Top Navigation Bar */}
       <header className="border-b border-zinc-800/80 bg-zinc-900/90 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -243,7 +246,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer with Version Number on the bottom line */}
+      {/* Footer with Version Number and Accessibility Info */}
       <footer id="app-footer" className="border-t border-zinc-800/80 py-3.5 px-4 sm:px-6 text-xs text-zinc-500 font-mono flex flex-col sm:flex-row items-center justify-between gap-2.5">
         <div className="flex items-center gap-2 text-zinc-400">
           <span className="font-semibold text-zinc-300">SPYWAR Card Game Simulator</span>
@@ -252,14 +255,22 @@ export default function App() {
           <span className="hidden sm:inline">&bull;</span>
           <span>ISMCTS AI &amp; Cloud Multiplayer</span>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-zinc-900/90 border border-zinc-700/80 text-amber-400 text-[11px]">
+            <ZoomIn className="w-3 h-3 text-amber-400" />
+            <span>Hover card + <kbd className="px-1 py-0.2 rounded bg-zinc-800 border border-zinc-600 text-zinc-200 font-bold text-[10px]">Space</kbd> to Zoom (3x/5x)</span>
+          </div>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-700/80 text-amber-400 font-bold text-[11px] shadow-sm">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            v1.2.0
+            v1.3.0
           </span>
           <span className="text-[10px] text-zinc-500">build 2026.09.19</span>
         </div>
       </footer>
+
+      {/* Global Spacebar Card Zoom Modal */}
+      <ZoomedCardModal />
     </div>
+    </CardZoomProvider>
   );
 }

@@ -3,9 +3,10 @@ import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { subscribeToMultiplayerRoom, syncRoomState, deleteMultiplayerRoom } from '../services/multiplayerService';
+import { useCardZoom } from '../context/CardZoomContext';
 
 interface PendingDefenseState {
   attacker: Player;
@@ -26,6 +27,7 @@ interface GameBoardProps {
 
 export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const [aiThinking, setAiThinking] = useState(false);
   const [autoAi, setAutoAi] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>('human_vs_ai');
@@ -175,12 +177,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
   };
 
 
-  // Keyboard shortcut listener: Spacebar or 's' key triggers Step AI (P2)
+  // Keyboard shortcut listener: 's' key triggers Step AI (P2), leaving Spacebar for Card Magnification (Tabletopia mode)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      if (e.key === ' ' || e.key === 's' || e.key === 'S') {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 's' || e.key === 'S') {
         const cur = engine.getActivePlayer();
         if (cur.isAI && !engine.gameOver && !aiThinking) {
           e.preventDefault();
@@ -680,7 +682,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
               <Play className="w-3.5 h-3.5 fill-current" />
               {aiThinking ? 'AI Thinking...' : `Step AI (${activePlayer.pid})`}
               <span className="hidden sm:inline-block ml-1 px-1.5 py-0.2 text-[10px] bg-indigo-800/90 rounded font-mono border border-indigo-400/30">
-                Space
+                S
               </span>
             </button>
           )}
@@ -771,51 +773,85 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
             <Activity className="w-4 h-4 text-emerald-400" />
             Active Table Missions ({engine.missionsOnTable.length})
           </span>
-          <span className="text-[11px] font-mono text-zinc-500">
-            Drawn 1 face-up per round | Physical tokens placed in real-time
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-zinc-500 hidden sm:inline">
+              Drawn 1 face-up per round | Physical tokens placed in real-time
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-amber-400 text-[10px] font-mono font-medium">
+              <ZoomIn className="w-3 h-3 text-amber-400" />
+              <span>Hover + [Space] to Zoom</span>
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {engine.missionsOnTable.map(mission => (
-            <div
-              key={mission.id}
-              className="p-2.5 rounded-lg bg-zinc-950 border border-emerald-900/40 space-y-1.5"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-zinc-100">{mission.name}</span>
-                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  +{mission.points} pts
-                </span>
-              </div>
-              <p className="text-[10px] text-zinc-400 line-clamp-2">{mission.description}</p>
-              
-              {/* Token Progress Bar */}
-              <div className="pt-1 text-[10px] font-mono space-y-1 border-t border-zinc-800/80">
-                <div className="flex items-center justify-between text-blue-300">
-                  <span>P1 Tokens:</span>
-                  <span className="font-bold">{mission.tokens.P1 || 0} / {mission.req}</span>
-                </div>
-                <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="bg-blue-500 h-full transition-all"
-                    style={{ width: `${Math.min(100, ((mission.tokens.P1 || 0) / mission.req) * 100)}%` }}
-                  />
-                </div>
+          {engine.missionsOnTable.map(mission => {
+            const missionItem = { ...mission, type: 'Mission' as const };
+            const isHighlighted = highlightedItem?.id === mission.id;
+            return (
+              <div
+                key={mission.id}
+                tabIndex={0}
+                role="button"
+                aria-label={`Mission: ${mission.name}. Press Spacebar to zoom.`}
+                onMouseEnter={() => setHighlightedItem(missionItem)}
+                onMouseLeave={() => clearHighlightedItem(missionItem)}
+                onFocus={() => setHighlightedItem(missionItem)}
+                onClick={() => openZoom(missionItem)}
+                className={`p-2.5 rounded-lg bg-zinc-950 border transition-all cursor-pointer relative group select-none outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+                  isHighlighted
+                    ? 'ring-2 ring-emerald-400 border-emerald-400 shadow-emerald-500/20 shadow-md'
+                    : 'border-emerald-900/40 hover:border-emerald-600/70'
+                } space-y-1.5`}
+              >
+                {/* Zoom Trigger Icon */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openZoom(missionItem);
+                  }}
+                  title="Magnify mission 3x/5x (or press Spacebar)"
+                  className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-zinc-900 border border-emerald-500/70 text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity shadow-md"
+                >
+                  <ZoomIn className="w-2.5 h-2.5" />
+                </button>
 
-                <div className="flex items-center justify-between text-rose-300 mt-1">
-                  <span>P2 Tokens:</span>
-                  <span className="font-bold">{mission.tokens.P2 || 0} / {mission.req}</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-zinc-100">{mission.name}</span>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    +{mission.points} pts
+                  </span>
                 </div>
-                <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="bg-rose-500 h-full transition-all"
-                    style={{ width: `${Math.min(100, ((mission.tokens.P2 || 0) / mission.req) * 100)}%` }}
-                  />
+                <p className="text-[10px] text-zinc-400 line-clamp-2">{mission.description}</p>
+                
+                {/* Token Progress Bar */}
+                <div className="pt-1 text-[10px] font-mono space-y-1 border-t border-zinc-800/80">
+                  <div className="flex items-center justify-between text-blue-300">
+                    <span>P1 Tokens:</span>
+                    <span className="font-bold">{mission.tokens.P1 || 0} / {mission.req}</span>
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-blue-500 h-full transition-all"
+                      style={{ width: `${Math.min(100, ((mission.tokens.P1 || 0) / mission.req) * 100)}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-rose-300 mt-1">
+                    <span>P2 Tokens:</span>
+                    <span className="font-bold">{mission.tokens.P2 || 0} / {mission.req}</span>
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-rose-500 h-full transition-all"
+                      style={{ width: `${Math.min(100, ((mission.tokens.P2 || 0) / mission.req) * 100)}%` }}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {engine.missionsOnTable.length === 0 && (
             <div className="col-span-full py-4 text-center text-xs text-zinc-500 italic">
               All revealed missions have been claimed!

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card } from '../types/spywar';
-import { Shield, Sword, Coins, Skull, Terminal, Eye, Sparkles } from 'lucide-react';
+import { Shield, Sword, Coins, Skull, Terminal, Eye, Sparkles, ZoomIn } from 'lucide-react';
+import { useCardZoom } from '../context/CardZoomContext';
 
 interface CardViewProps {
   card: Card;
@@ -19,7 +20,9 @@ export const CardView: React.FC<CardViewProps> = ({
   selected = false,
   compact = false
 }) => {
+  const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const isExhausted = card.exhausted;
+  const isCurrentlyHighlighted = highlightedItem?.id === card.id;
 
   const getTypeBadgeColor = () => {
     switch (card.type) {
@@ -34,18 +37,40 @@ export const CardView: React.FC<CardViewProps> = ({
 
   const getBorderColor = () => {
     if (selected) return 'ring-2 ring-amber-400 border-amber-400 shadow-amber-500/20 shadow-lg';
+    if (isCurrentlyHighlighted) return 'ring-1 ring-amber-500/60 border-amber-500/80 shadow-amber-500/10 shadow-md';
     if (isPlayable) return 'border-emerald-500/80 hover:border-emerald-400 cursor-pointer shadow-emerald-500/10 shadow-md';
     if (card.isNamed) return 'border-amber-500/60';
     return 'border-zinc-800 hover:border-zinc-700';
   };
 
+  const handleZoomClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openZoom(card);
+  };
+
   return (
     <div
+      tabIndex={0}
+      role="button"
+      aria-label={`${card.name}, ${card.type}. Press Spacebar to magnify.`}
+      onMouseEnter={() => setHighlightedItem(card)}
+      onMouseLeave={() => clearHighlightedItem(card)}
+      onFocus={() => setHighlightedItem(card)}
       onClick={onClick || (isPlayable ? onPlay : undefined)}
-      className={`relative group select-none transition-all duration-200 rounded-lg p-2.5 flex flex-col justify-between bg-zinc-900/90 backdrop-blur-sm border ${getBorderColor()} ${
+      className={`relative group select-none transition-all duration-200 rounded-lg p-2.5 flex flex-col justify-between bg-zinc-900/90 backdrop-blur-sm border outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${getBorderColor()} ${
         isExhausted ? 'opacity-60 saturate-50 translate-y-0.5' : ''
       } ${compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'}`}
     >
+      {/* Spacebar Zoom Trigger Button (Accessible for Touch & Mouse) */}
+      <button
+        type="button"
+        onClick={handleZoomClick}
+        title="Magnify card 3x/5x (or press Spacebar)"
+        className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-zinc-900 border border-amber-500/70 text-amber-400 hover:text-white hover:bg-amber-600 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity shadow-md"
+      >
+        <ZoomIn className="w-3 h-3" />
+      </button>
+
       {/* Top Header: Cost / Prod & State Indicator */}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">

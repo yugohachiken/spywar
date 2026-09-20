@@ -1541,35 +1541,70 @@ export class SpywarEngine {
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
         const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds);
 
-        if (defRes.thwarted) {
-          this.log(opponent.pid, 'THWART-ASS', `🛡️ DEFENSIVE TEAM! ${defRes.message} teamed up to defend against ${attackerNames} Assassination (ATK: ${atk})! Attack THWARTED!`);
-          this.placeMissionTokens(opponent, 'thwart_ass', 1);
-          return { success: true, thwarted: true, message: `Assassination thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
-        }
-
-        // Check if defense or innate defense protected the target
+        // Calculate target's innate defense if target was not already one of the active defending operatives
         const isExh = target.exhausted;
         const targetAlreadyInDefenders = defRes.defenders.some(d => d.id === target.id);
         const targetInnateDef = targetAlreadyInDefenders ? 0 : ((target.def || 1) + (isExh ? 0 : (target.ass || 0)) + (target.tempDefenseBuff || 0));
         const effectiveDef = defRes.totalDef + targetInnateDef;
 
-        if (atk > effectiveDef) {
-          const tIdx = opponent.battlefield.findIndex(c => c.id === target.id);
-          if (tIdx !== -1) {
-            opponent.battlefield.splice(tIdx, 1);
-            opponent.discard_pile.push(target);
-            player.telemetry.eliminatedEnemyOpThisTurn = true;
-            if (defRes.defenders.length > 0) {
-              this.log(player.pid, 'ASSASSINATE', `💥 ATTACK BROKE DEFENSE! ${attackerNames} (Total ATK: ${atk}) overpowered defensive team (DEF: ${effectiveDef})! Target ${target.name} eliminated!`);
-            } else {
-              this.log(player.pid, 'ASSASSINATE', `${attackerNames} (Total ATK: ${atk}) eliminated enemy ${target.name} (DEF: ${effectiveDef})!`);
-            }
-            this.placeMissionTokens(player, 'kills', 1);
-            return { success: true, message: `${attackerNames} destroyed ${target.name}.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
+        // Helper to discard card from player battlefield to discard pile
+        const discardFromBattlefield = (p: Player, c: Card) => {
+          const idx = p.battlefield.findIndex(item => item.id === c.id);
+          if (idx !== -1) {
+            p.battlefield.splice(idx, 1);
+            p.discard_pile.push(c);
           }
+        };
+
+        // ASSASSINATION RESOLUTION RULES:
+        // - Attacker > Defender: Assassination successful, Defending cards are discarded.
+        // - Attacker == Defender: Assassination successful, both Attacker and Defender cards are discarded.
+        // - Attacker < Defender: Assassination Failed, Attacker cards are discarded.
+        if (atk > effectiveDef) {
+          // Success: Defending cards discarded (target + defending operatives)
+          discardFromBattlefield(opponent, target);
+          player.telemetry.eliminatedEnemyOpThisTurn = true;
+          this.placeMissionTokens(player, 'kills', 1);
+
+          for (const d of defRes.defenders) {
+            if (d.id !== target.id) {
+              discardFromBattlefield(opponent, d);
+              player.telemetry.eliminatedEnemyOpThisTurn = true;
+              this.placeMissionTokens(player, 'kills', 1);
+            }
+          }
+
+          const defDesc = defRes.defenders.length > 0 ? ` and defending team [${defRes.defenders.map(d => d.name).join(', ')}]` : '';
+          this.log(player.pid, 'ASSASSINATE-SUCCESS', `💥 ASSASSINATION SUCCESSFUL! ${attackerNames} (ATK: ${atk}) overwhelmed ${target.name} (Total DEF: ${effectiveDef})${defDesc}! Defending cards discarded.`);
+          return { success: true, message: `Assassination successful! Target ${target.name}${defDesc} discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
+        } else if (atk === effectiveDef) {
+          // Success with mutual destruction: Both Attacker and Defender cards discarded
+          discardFromBattlefield(opponent, target);
+          player.telemetry.eliminatedEnemyOpThisTurn = true;
+          this.placeMissionTokens(player, 'kills', 1);
+
+          for (const d of defRes.defenders) {
+            if (d.id !== target.id) {
+              discardFromBattlefield(opponent, d);
+              player.telemetry.eliminatedEnemyOpThisTurn = true;
+              this.placeMissionTokens(player, 'kills', 1);
+            }
+          }
+
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+
+          this.log(player.pid, 'ASSASSINATE-MUTUAL', `⚔️ ASSASSINATION MUTUAL CASUALTIES! ${attackerNames} (ATK: ${atk}) equaled defense (DEF: ${effectiveDef})! Both Attacker and Defender cards were discarded.`);
+          return { success: true, message: `Assassination succeeded with mutual destruction. Both sides discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         } else {
-          this.log(opponent.pid, 'DEFLECT-ASS', `🛡️ Target ${target.name} defenses (DEF: ${effectiveDef}) deflected ${attackerNames}'s strike (ATK: ${atk})!`);
-          return { success: true, message: `${target.name} survived attack.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
+          // Failed: Attacker cards discarded
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+          this.log(opponent.pid, 'ASSASSINATE-FAILED', `🛡️ ASSASSINATION FAILED! ${target.name} and defense (Total DEF: ${effectiveDef}) repelled ${attackerNames} (ATK: ${atk})! Attacking operative cards discarded.`);
+          this.placeMissionTokens(opponent, 'thwart_ass', 1);
+          return { success: true, thwarted: true, message: `Assassination failed! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
       }
 
@@ -1578,45 +1613,74 @@ export class SpywarEngine {
         player.telemetry.uniqueOpTypesThisTurn.add('raid');
 
         let totalRaidOff = 0;
+        let totalRaidSkill = 0;
         for (const a of attackers) {
           totalRaidOff += (a.off || 1) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+          totalRaidSkill += (a.raid || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
         const defRes = this.resolveDefense(opponent, 'raid', totalRaidOff, defenderCardIds || action.defenderCardIds);
+        const effectiveDef = defRes.totalDef;
 
-        if (defRes.thwarted) {
-          this.log(opponent.pid, 'THWART-RAID', `🛡️ DEFENSIVE TEAM! ${defRes.message} repelled the raid from ${attackerNames} (ATK: ${totalRaidOff})! Zero coins stolen.`);
-          this.placeMissionTokens(opponent, 'thwart_raid', 1);
-          return { success: true, thwarted: true, message: `Raid thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
-        }
-
-        const effectiveRaidPower = Math.max(0, totalRaidOff - defRes.totalDef);
-        const target = action.targetCard;
-        let stolen = 0;
-        if (target && typeof target.stored_coins === 'number' && target.stored_coins > 0) {
-          stolen = Math.min(target.stored_coins, effectiveRaidPower);
-          target.stored_coins -= stolen;
-        } else {
-          stolen = Math.min(this.getTotalSpendableCoins(opponent), effectiveRaidPower);
-          this.spendCoins(opponent, stolen);
-        }
-
-        if (stolen > 0) {
-          player.current_turn_coins += stolen;
-          player.telemetry.raidedCoinsThisTurn += stolen;
-          const targetName = target ? target.name : opponent.name;
-          if (defRes.defenders.length > 0) {
-            this.log(player.pid, 'OP-RAID', `[${defRes.message}] mitigated raid, but ${attackerNames} captured ${stolen} coins from ${targetName}.`);
-          } else {
-            this.log(player.pid, 'OP-RAID', `${attackerNames} raided and captured ${stolen} coins from ${targetName}.`);
+        const discardFromBattlefield = (p: Player, c: Card) => {
+          const idx = p.battlefield.findIndex(item => item.id === c.id);
+          if (idx !== -1) {
+            p.battlefield.splice(idx, 1);
+            p.discard_pile.push(c);
           }
-          this.placeMissionTokens(player, 'res_theft', stolen);
-          return { success: true, message: `Raided ${stolen} coins from ${targetName}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
+        };
+
+        // RAID RESOLUTION RULES:
+        // - Attacker > Defender: Raid is successful.
+        //   Rule: 1 coin is taken for every card used in the Operation, plus 1 additional coin for each point of applicable skill (raid skill) in the Operation.
+        //   Defending Operatives are discarded.
+        // - Attacker == Defender: Raid is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
+        // - Attacker < Defender: Raid is Thwarted, Attacking Operative cards are discarded.
+        if (totalRaidOff > effectiveDef) {
+          const target = action.targetCard;
+          let stolen = 0;
+          const maxTake = attackers.length + totalRaidSkill;
+          if (target && typeof target.stored_coins === 'number' && target.stored_coins > 0) {
+            stolen = Math.min(target.stored_coins, maxTake);
+            target.stored_coins -= stolen;
+          }
+
+          if (stolen > 0) {
+            player.current_turn_coins += stolen;
+            player.telemetry.raidedCoinsThisTurn += stolen;
+            this.placeMissionTokens(player, 'res_theft', stolen);
+          }
+
+          // Defending operatives are discarded
+          for (const d of defRes.defenders) {
+            discardFromBattlefield(opponent, d);
+          }
+
+          const targetName = target ? target.name : 'Target';
+          const defDesc = defRes.defenders.length > 0 ? ` Defending operatives [${defRes.defenders.map(d => d.name).join(', ')}] were eliminated and discarded.` : '';
+          this.log(player.pid, 'OP-RAID', `💰 RAID SUCCESSFUL! ${attackerNames} (ATK: ${totalRaidOff}) defeated defense (DEF: ${effectiveDef})! Raided ${stolen} coin(s) (${attackers.length} card${attackers.length > 1 ? 's' : ''} used + ${totalRaidSkill} Raid Skill) from ${targetName}.${defDesc}`);
+          return { success: true, message: `Raid successful! Stole ${stolen} coin(s) from ${targetName} (${attackers.length} card${attackers.length > 1 ? 's' : ''} + ${totalRaidSkill} skill).${defDesc}`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
+        } else if (totalRaidOff === effectiveDef) {
+          // Thwarted: All Operative cards (attackers + defenders) discarded
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+          for (const d of defRes.defenders) {
+            discardFromBattlefield(opponent, d);
+          }
+          this.log(opponent.pid, 'THWART-RAID', `⚖️ RAID THWARTED (TIED)! ${attackerNames} (ATK: ${totalRaidOff}) matched defense (DEF: ${effectiveDef}). All participating operative cards discarded! Zero coins stolen.`);
+          this.placeMissionTokens(opponent, 'thwart_raid', 1);
+          return { success: true, thwarted: true, message: `Raid thwarted (tied)! All participating operative cards discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         } else {
-          this.log(opponent.pid, 'THWART-RAID', `Raid absorbed completely by defensive barrier (DEF: ${defRes.totalDef} vs ATK: ${totalRaidOff}).`);
-          return { success: true, thwarted: true, message: `Raid absorbed by defense.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
+          // Thwarted: Attacking operative cards discarded
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+          this.log(opponent.pid, 'THWART-RAID', `🛡️ RAID THWARTED! ${defRes.message} (DEF: ${effectiveDef}) repelled ${attackerNames} (ATK: ${totalRaidOff})! Attacking operatives discarded.`);
+          this.placeMissionTokens(opponent, 'thwart_raid', 1);
+          return { success: true, thwarted: true, message: `Raid thwarted! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
       }
 
@@ -1625,40 +1689,76 @@ export class SpywarEngine {
         player.telemetry.uniqueOpTypesThisTurn.add('sub');
 
         let totalSubOff = 0;
+        let totalSubSkill = 0;
         for (const a of attackers) {
           totalSubOff += (a.off || 1) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+          totalSubSkill += (a.sub || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
         const defRes = this.resolveDefense(opponent, 'sub', totalSubOff, defenderCardIds || action.defenderCardIds);
+        const effectiveDef = defRes.totalDef;
 
-        if (defRes.thwarted) {
-          this.log(opponent.pid, 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} blocked the subterfuge attack from ${attackerNames} (ATK: ${totalSubOff})! Zero cards lost.`);
-          this.placeMissionTokens(opponent, 'thwart_sub', 1);
-          return { success: true, thwarted: true, message: `Subterfuge thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
-        }
-
-        const effectiveSub = Math.max(0, totalSubOff - defRes.totalDef);
-        const cardsToDrop = Math.min(opponent.hand.length, effectiveSub);
-        const dropped: string[] = [];
-        for (let i = 0; i < cardsToDrop; i++) {
-          if (opponent.hand.length > 0) {
-            const c = opponent.hand.pop()!;
-            opponent.discard_pile.push(c);
-            dropped.push(c.name);
-            opponent.telemetry.discardedCardFromHandThisTurn = true;
+        const discardFromBattlefield = (p: Player, c: Card) => {
+          const idx = p.battlefield.findIndex(item => item.id === c.id);
+          if (idx !== -1) {
+            p.battlefield.splice(idx, 1);
+            p.discard_pile.push(c);
           }
-        }
-        if (defRes.defenders.length > 0) {
-          this.log(player.pid, 'OP-SUB', `[${defRes.message}] shielded hand, but ${attackerNames} forced discard of: [${dropped.join(', ')}].`);
+        };
+
+        // SUBTERFUGE RESOLUTION RULES:
+        // - Attacker > Defender: Subterfuge is successful.
+        //   Rule: 1 card is discarded for every card used in the Operation, plus 1 additional card for each point of applicable skill (sub skill) in the Operation.
+        //   Defending Operatives are discarded.
+        // - Attacker == Defender: Subterfuge is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
+        // - Attacker < Defender: Subterfuge is Thwarted, Attacking Operative cards are discarded.
+        if (totalSubOff > effectiveDef) {
+          const maxDiscards = attackers.length + totalSubSkill;
+          const cardsToDrop = Math.min(opponent.hand.length, maxDiscards);
+          const dropped: string[] = [];
+          for (let i = 0; i < cardsToDrop; i++) {
+            if (opponent.hand.length > 0) {
+              const c = opponent.hand.pop()!;
+              opponent.discard_pile.push(c);
+              dropped.push(c.name);
+              opponent.telemetry.discardedCardFromHandThisTurn = true;
+            }
+          }
+
+          // Defending operatives are discarded
+          for (const d of defRes.defenders) {
+            discardFromBattlefield(opponent, d);
+          }
+
+          if (opponent.hand.length === 0 && dropped.length > 0) {
+            this.placeMissionTokens(player, 'hand_wipe', 1);
+          }
+
+          const defDesc = defRes.defenders.length > 0 ? ` Defending operatives [${defRes.defenders.map(d => d.name).join(', ')}] were eliminated and discarded.` : '';
+          this.log(player.pid, 'OP-SUB', `🕵️ SUBTERFUGE SUCCESSFUL! ${attackerNames} (ATK: ${totalSubOff}) overpowered defense (DEF: ${effectiveDef})! Forced discard of ${dropped.length} card(s) (${attackers.length} card${attackers.length > 1 ? 's' : ''} used + ${totalSubSkill} Sub Skill): [${dropped.join(', ')}].${defDesc}`);
+          return { success: true, message: `Subterfuge successful! Forced discard of ${dropped.length} card(s) (${attackers.length} card${attackers.length > 1 ? 's' : ''} + ${totalSubSkill} skill).${defDesc}`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
+        } else if (totalSubOff === effectiveDef) {
+          // Thwarted: All Operative cards discarded
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+          for (const d of defRes.defenders) {
+            discardFromBattlefield(opponent, d);
+          }
+          this.log(opponent.pid, 'THWART-SUB', `⚖️ SUBTERFUGE THWARTED (TIED)! ${attackerNames} (ATK: ${totalSubOff}) matched defense (DEF: ${effectiveDef}). All participating operative cards discarded! Zero cards discarded from hand.`);
+          this.placeMissionTokens(opponent, 'thwart_sub', 1);
+          return { success: true, thwarted: true, message: `Subterfuge thwarted (tied)! All participating operative cards discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         } else {
-          this.log(player.pid, 'OP-SUB', `${attackerNames} subterfuge forced ${opponent.name} to discard: [${dropped.join(', ')}].`);
+          // Thwarted: Attacking operative cards discarded
+          for (const a of attackers) {
+            discardFromBattlefield(player, a);
+          }
+          this.log(opponent.pid, 'THWART-SUB', `🛡️ SUBTERFUGE THWARTED! ${defRes.message} (DEF: ${effectiveDef}) blocked ${attackerNames} (ATK: ${totalSubOff})! Attacking operatives discarded.`);
+          this.placeMissionTokens(opponent, 'thwart_sub', 1);
+          return { success: true, thwarted: true, message: `Subterfuge thwarted! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
-        if (opponent.hand.length === 0 && dropped.length > 0) {
-          this.placeMissionTokens(player, 'hand_wipe', 1);
-        }
-        return { success: true, message: `Forced discard of ${dropped.length} cards.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       }
 
       if (action.opType === 'hold') {

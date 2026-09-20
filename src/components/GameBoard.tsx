@@ -5,6 +5,8 @@ import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
 import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
+import { CombatPlanner, CombatOperationType } from './CombatPlanner';
+import { InlineDefensePanel } from './InlineDefensePanel';
 import { subscribeToMultiplayerRoom, syncRoomState, deleteMultiplayerRoom } from '../services/multiplayerService';
 import { useCardZoom } from '../context/CardZoomContext';
 
@@ -27,6 +29,9 @@ interface GameBoardProps {
 
 export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const [selectedAttackers, setSelectedAttackers] = useState<Card[]>([]);
+  const [selectedCombatOp, setSelectedCombatOp] = useState<CombatOperationType | null>(null);
+  const [selectedCombatTarget, setSelectedCombatTarget] = useState<Card | null>(null);
   const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const [aiThinking, setAiThinking] = useState(false);
   const [autoAi, setAutoAi] = useState(false);
@@ -357,6 +362,84 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
     }, 150);
   };
 
+  const clearCombatSelection = () => {
+    setSelectedAttackers([]);
+    setSelectedCombatOp(null);
+    setSelectedCombatTarget(null);
+  };
+
+  const handleExecuteMultiAttack = () => {
+    if (selectedAttackers.length === 0 || !selectedCombatOp) return;
+
+    let action: Action;
+    const attackerCards = [...selectedAttackers];
+    const firstOp = attackerCards[0];
+
+    if (selectedCombatOp === 'ass') {
+      if (!selectedCombatTarget) return;
+      let totalOff = 0;
+      for (const a of attackerCards) {
+        totalOff += (a.off || 1) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+      }
+      action = {
+        type: 'OPERATIVE_ACTION',
+        cardId: firstOp.id,
+        cardName: firstOp.name,
+        card: firstOp,
+        attackerCards,
+        targetId: selectedCombatTarget.id,
+        targetName: selectedCombatTarget.name,
+        targetCard: selectedCombatTarget,
+        opType: 'ass',
+        desc: `Exhaust Team (${attackerCards.length} Operative${attackerCards.length > 1 ? 's' : ''}) to Assassinate ${selectedCombatTarget.name} [Team OFF: ${totalOff}]`
+      };
+    } else if (selectedCombatOp === 'raid') {
+      if (!selectedCombatTarget) return;
+      let totalOff = 0;
+      let totalRaidSkill = 0;
+      for (const a of attackerCards) {
+        totalOff += (a.off || 1) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+        totalRaidSkill += (a.raid || 0);
+      }
+      const target = selectedCombatTarget;
+      const targetName = target.name;
+      const potentialCoins = attackerCards.length + totalRaidSkill;
+      action = {
+        type: 'OPERATIVE_ACTION',
+        cardId: firstOp.id,
+        cardName: firstOp.name,
+        card: firstOp,
+        attackerCards,
+        targetId: target.id,
+        targetName,
+        targetCard: target,
+        opType: 'raid',
+        desc: `Exhaust Team (${attackerCards.length} Operative${attackerCards.length > 1 ? 's' : ''}) to Raid ${targetName} [Team OFF: ${totalOff}, Potential Yield: ${potentialCoins} Coins]`
+      };
+    } else {
+      // Subterfuge
+      let totalOff = 0;
+      let totalSubSkill = 0;
+      for (const a of attackerCards) {
+        totalOff += (a.off || 1) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+        totalSubSkill += (a.sub || 0);
+      }
+      const potentialDiscards = attackerCards.length + totalSubSkill;
+      action = {
+        type: 'OPERATIVE_ACTION',
+        cardId: firstOp.id,
+        cardName: firstOp.name,
+        card: firstOp,
+        attackerCards,
+        opType: 'sub',
+        desc: `Exhaust Team (${attackerCards.length} Operative${attackerCards.length > 1 ? 's' : ''}) for Subterfuge against Hand [Team OFF: ${totalOff}, Potential Yield: ${potentialDiscards} Cards]`
+      };
+    }
+
+    clearCombatSelection();
+    handleAction(action);
+  };
+
   const handleAction = (action: Action) => {
     if (pendingDefense) return;
 
@@ -461,6 +544,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
     setAutoAi(false);
     if (autoAiTimerRef.current) clearTimeout(autoAiTimerRef.current);
     setPendingDefense(null);
+    clearCombatSelection();
     engine.setupGame();
     engine.setGameMode(gameMode);
     setSelectedCard(null);
@@ -931,11 +1015,62 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
         {/* Opponent Battlefield Cards */}
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           {topPlayer.affiliation && (
-            <CardView card={topPlayer.affiliation} compact />
+            <CardView
+              card={topPlayer.affiliation}
+              compact
+              selected={selectedCombatTarget?.id === topPlayer.affiliation.id || selectedCard?.id === topPlayer.affiliation.id}
+              selectionRole={
+                selectedCombatTarget?.id === topPlayer.affiliation.id
+                  ? 'target'
+                  : undefined
+              }
+              selectionBadge={
+                selectedCombatTarget?.id === topPlayer.affiliation.id
+                  ? 'Target'
+                  : undefined
+              }
+              onClick={() => {
+                if (selectedAttackers.length > 0) {
+                  setSelectedCombatTarget(selectedCombatTarget?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
+                } else {
+                  setSelectedCard(selectedCard?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
+                }
+              }}
+            />
           )}
-          {topPlayer.battlefield.map(card => (
-            <CardView key={card.id} card={card} compact />
-          ))}
+          {topPlayer.battlefield.map(card => {
+            const isTarget = selectedCombatTarget?.id === card.id;
+            const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === topPlayer.pid;
+            return (
+              <CardView
+                key={card.id}
+                card={card}
+                compact
+                selected={isTarget || isDefender || selectedCard?.id === card.id}
+                selectionRole={isTarget ? 'target' : isDefender ? 'defender' : undefined}
+                selectionBadge={isTarget ? 'Target' : isDefender ? 'Defender' : undefined}
+                onClick={() => {
+                  if (pendingDefense && pendingDefense.defender.pid === topPlayer.pid && (!isOnline || pendingDefense.defender.pid === myPid)) {
+                    if (card.type === 'Operative' && !card.exhausted) {
+                      const nextIds = pendingDefense.selectedDefenderIds.includes(card.id)
+                        ? pendingDefense.selectedDefenderIds.filter(id => id !== card.id)
+                        : [...pendingDefense.selectedDefenderIds, card.id];
+                      setPendingDefense({
+                        ...pendingDefense,
+                        selectedDefenderIds: nextIds
+                      });
+                    }
+                    return;
+                  }
+                  if (selectedAttackers.length > 0) {
+                    setSelectedCombatTarget(isTarget ? null : card);
+                  } else {
+                    setSelectedCard(selectedCard?.id === card.id ? null : card);
+                  }
+                }}
+              />
+            );
+          })}
           {topPlayer.battlefield.length === 0 && !topPlayer.affiliation && (
             <div className="text-xs text-zinc-500 italic py-4">No cards in play</div>
           )}
@@ -978,7 +1113,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
 
         {/* Player Battlefield Cards */}
         <div>
-          <div className="text-[11px] font-mono text-zinc-400 mb-1">Battlefield &amp; Affiliation in Play:</div>
+          <div className="text-[11px] font-mono text-zinc-400 mb-1 flex items-center justify-between">
+            <span>Battlefield &amp; Affiliation in Play:</span>
+            <span className="text-[10px] text-amber-400/90 font-mono">
+              Tip: Hold Shift + Click Ready Operatives to assemble a strike team
+            </span>
+          </div>
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             {bottomPlayer.affiliation && (
               <CardView
@@ -987,14 +1127,77 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
                 onClick={() => setSelectedCard(selectedCard?.id === bottomPlayer.affiliation.id ? null : bottomPlayer.affiliation)}
               />
             )}
-            {bottomPlayer.battlefield.map(card => (
-              <CardView
-                key={card.id}
-                card={card}
-                selected={selectedCard?.id === card.id}
-                onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
-              />
-            ))}
+            {bottomPlayer.battlefield.map(card => {
+              const isAttacker = selectedAttackers.some(a => a.id === card.id);
+              const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === bottomPlayer.pid;
+              const isTarget = selectedCombatTarget?.id === card.id;
+
+              let role: 'attacker' | 'defender' | 'target' | undefined = undefined;
+              let badge: string | undefined = undefined;
+              if (isAttacker) {
+                role = 'attacker';
+                badge = 'Attacker';
+              } else if (isDefender) {
+                role = 'defender';
+                badge = 'Defender';
+              } else if (isTarget) {
+                role = 'target';
+                badge = 'Target';
+              }
+
+              return (
+                <CardView
+                  key={card.id}
+                  card={card}
+                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id}
+                  selectionRole={role}
+                  selectionBadge={badge}
+                  onClick={(e) => {
+                    // 1. If currently in defense intercept state and this card belongs to defending player
+                    if (pendingDefense && pendingDefense.defender.pid === bottomPlayer.pid && (!isOnline || pendingDefense.defender.pid === myPid)) {
+                      if (card.type === 'Operative' && !card.exhausted) {
+                        const nextIds = pendingDefense.selectedDefenderIds.includes(card.id)
+                          ? pendingDefense.selectedDefenderIds.filter(id => id !== card.id)
+                          : [...pendingDefense.selectedDefenderIds, card.id];
+                        setPendingDefense({
+                          ...pendingDefense,
+                          selectedDefenderIds: nextIds
+                        });
+                      }
+                      return;
+                    }
+
+                    // 2. If Shift is pressed or card is already an attacker in multi-select mode:
+                    const isShift = e?.shiftKey;
+                    if (isShift || isAttacker || selectedAttackers.length > 0) {
+                      if (card.type === 'Operative') {
+                        if (card.exhausted) {
+                          // Exhausted card cannot join attack team
+                          return;
+                        }
+                        if (isAttacker) {
+                          const updated = selectedAttackers.filter(a => a.id !== card.id);
+                          setSelectedAttackers(updated);
+                          if (updated.length === 0) {
+                            setSelectedCombatOp(null);
+                            setSelectedCombatTarget(null);
+                          }
+                        } else {
+                          const updated = [...selectedAttackers, card];
+                          setSelectedAttackers(updated);
+                          if (!selectedCombatOp) setSelectedCombatOp('ass');
+                        }
+                        setSelectedCard(null);
+                        return;
+                      }
+                    }
+
+                    // 3. Normal single card selection toggle
+                    setSelectedCard(selectedCard?.id === card.id ? null : card);
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
 
@@ -1022,13 +1225,61 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
                     if (act) handleAction(act);
                   }}
                   selected={selectedCard?.id === card.id}
-                  onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
+                  onClick={() => {
+                    clearCombatSelection();
+                    setSelectedCard(selectedCard?.id === card.id ? null : card);
+                  }}
                 />
               );
             })}
           </div>
         </div>
       </div>
+
+      {/* COMBAT PLANNER INTERFACE (MULTI-SELECT OPERATIVES) */}
+      {selectedAttackers.length > 0 && (
+        <CombatPlanner
+          engine={engine}
+          attackerPlayer={bottomPlayer}
+          defenderPlayer={topPlayer}
+          selectedAttackers={selectedAttackers}
+          selectedTarget={selectedCombatTarget}
+          selectedOperation={selectedCombatOp}
+          onSelectOperation={(op) => setSelectedCombatOp(op)}
+          onSelectTarget={(target) => setSelectedCombatTarget(target)}
+          onClearAttackers={clearCombatSelection}
+          onExecuteAttack={handleExecuteMultiAttack}
+          disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing')}
+        />
+      )}
+
+      {/* INLINE DEFENSE INTERCEPT PANEL (NO POP-UP WINDOW) */}
+      {pendingDefense && (
+        <InlineDefensePanel
+          engine={engine}
+          attacker={pendingDefense.attacker}
+          defender={pendingDefense.defender}
+          threatType={pendingDefense.threatType}
+          threatName={pendingDefense.threatName}
+          incomingAttack={pendingDefense.incomingAttack}
+          attackerNames={pendingDefense.attackerNames}
+          targetCard={pendingDefense.action.targetCard || null}
+          readyOps={pendingDefense.readyOps}
+          selectedDefenderIds={pendingDefense.selectedDefenderIds}
+          onToggleDefender={(cardId) => {
+            const nextIds = pendingDefense.selectedDefenderIds.includes(cardId)
+              ? pendingDefense.selectedDefenderIds.filter(id => id !== cardId)
+              : [...pendingDefense.selectedDefenderIds, cardId];
+            setPendingDefense({
+              ...pendingDefense,
+              selectedDefenderIds: nextIds
+            });
+          }}
+          onConfirmDefense={handleConfirmDefense}
+          onDeclineDefense={() => handleConfirmDefense([])}
+          isOnlinePeerWaiting={isOnline && pendingDefense.defender.pid !== myPid}
+        />
+      )}
 
       {/* ACTION SELECTOR MENU */}
       <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
@@ -1374,194 +1625,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
                 Apply &amp; Restart Match
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Defensive Intercept Assignment Modal (Rule 2) */}
-      {pendingDefense && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border-2 border-red-500/80 rounded-xl p-5 max-w-xl w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg bg-red-500/20 text-red-400 border border-red-500/40">
-                  <Shield className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-                    Defensive Intercept Assignment
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-950 text-red-300 border border-red-800 uppercase">
-                      Rule 2 Active
-                    </span>
-                  </h3>
-                  <p className="text-xs text-zinc-400">
-                    <strong className="text-zinc-200">{pendingDefense.defender.name}</strong> is under attack from <strong className="text-red-400">{pendingDefense.attacker.name}</strong>!
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Attack Threat Card */}
-            <div className="p-3 rounded-lg bg-red-950/30 border border-red-500/30 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold uppercase text-red-400 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Incoming {pendingDefense.threatName}
-                </span>
-                <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-red-500 text-zinc-950">
-                  Incoming Attack: {pendingDefense.incomingAttack} ATK
-                </span>
-              </div>
-              <p className="text-xs text-zinc-300">
-                Attacker Unit: <strong className="text-zinc-100">{pendingDefense.attackerNames}</strong>
-              </p>
-              <p className="text-[11px] text-zinc-400 font-mono">
-                Formula: Defense values of all assigned Ready Operatives are Totaled, plus 1 point for each applicable Skill rating ({pendingDefense.threatType.toUpperCase()}).
-              </p>
-            </div>
-
-            {/* Ready Operatives Selection */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider">
-                  Assign Defending Operatives (Ready Only)
-                </span>
-                <span className="text-xs font-mono text-zinc-400">
-                  {pendingDefense.selectedDefenderIds.length} of {pendingDefense.readyOps.length} Selected
-                </span>
-              </div>
-
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                {pendingDefense.readyOps.map(op => {
-                  const isSelected = pendingDefense.selectedDefenderIds.includes(op.id);
-                  const calc = engine.calculateOperativeDefense(op, pendingDefense.threatType);
-                  return (
-                    <button
-                      key={op.id}
-                      type="button"
-                      onClick={() => {
-                        const nextIds = isSelected
-                          ? pendingDefense.selectedDefenderIds.filter(id => id !== op.id)
-                          : [...pendingDefense.selectedDefenderIds, op.id];
-                        setPendingDefense({
-                          ...pendingDefense,
-                          selectedDefenderIds: nextIds
-                        });
-                      }}
-                      className={`w-full text-left p-2.5 rounded-lg border transition-all flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-amber-950/40 border-amber-500 text-zinc-100 shadow-sm'
-                          : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                          isSelected ? 'bg-amber-500 border-amber-500 text-zinc-950' : 'border-zinc-700 bg-zinc-900'
-                        }`}>
-                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
-                            {op.name}
-                            <span className="text-[10px] text-zinc-500 font-mono">({op.affiliation})</span>
-                          </div>
-                          <div className="text-[11px] text-zinc-400 font-mono">
-                            Base DEF: {calc.baseDef}
-                            {calc.tempBuff > 0 ? ` + Buff: ${calc.tempBuff}` : ''}
-                            {' | '}
-                            {pendingDefense.threatType.toUpperCase()} Skill: +{calc.skillBonus}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                          isSelected ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-zinc-800 text-zinc-400'
-                        }`}>
-                          +{calc.totalDef} DEF
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Defense Assessment Status */}
-            {(() => {
-              const selectedOps = pendingDefense.readyOps.filter(c => pendingDefense.selectedDefenderIds.includes(c.id));
-              const currentTotalDef = selectedOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, pendingDefense.threatType).totalDef, 0);
-              const allDef = pendingDefense.readyOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, pendingDefense.threatType).totalDef, 0);
-              const isThwarted = currentTotalDef >= pendingDefense.incomingAttack;
-
-              return (
-                <div className="space-y-3 pt-2 border-t border-zinc-800">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-400">Total Defense Team Power:</span>
-                    <span className={`font-bold text-sm ${isThwarted ? 'text-emerald-400' : currentTotalDef > 0 ? 'text-amber-400' : 'text-rose-400'}`}>
-                      {currentTotalDef} DEF <span className="text-zinc-500 text-xs">/ {pendingDefense.incomingAttack} ATK needed</span>
-                    </span>
-                  </div>
-
-                  {isThwarted ? (
-                    <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 text-xs font-mono flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span><strong>ATTACK WILL BE THWARTED!</strong> Defense ({currentTotalDef}) &ge; Attack ({pendingDefense.incomingAttack}). Attack negated!</span>
-                    </div>
-                  ) : currentTotalDef > 0 ? (
-                    <div className="p-2.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-300 text-xs font-mono flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span><strong>PARTIAL MITIGATION:</strong> Defenders absorb {currentTotalDef} DEF, but {pendingDefense.incomingAttack - currentTotalDef} attack power penetrates!</span>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/50 text-rose-300 text-xs font-mono flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span><strong>NO DEFENDERS ASSIGNED:</strong> Attack lands unmitigated ({pendingDefense.incomingAttack} ATK).</span>
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    {isOnline && pendingDefense.defender.pid !== myPid ? (
-                      <div className="w-full text-center py-2.5 px-4 text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                        <span>{pendingDefense.defender.name} is currently selecting defensive interceptors...</span>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleConfirmDefense([])}
-                          className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-mono transition-colors"
-                        >
-                          Decline Defense
-                        </button>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmDefense(pendingDefense.readyOps.map(c => c.id))}
-                            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-mono font-bold transition-colors border border-amber-500/30"
-                          >
-                            Defend with All ({allDef} DEF)
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmDefense(pendingDefense.selectedDefenderIds)}
-                            className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-mono font-bold shadow-md transition-colors flex items-center gap-1.5"
-                          >
-                            <Shield className="w-4 h-4" />
-                            Confirm Defense ({currentTotalDef} DEF)
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         </div>
       )}

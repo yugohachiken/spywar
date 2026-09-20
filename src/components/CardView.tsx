@@ -7,8 +7,10 @@ interface CardViewProps {
   card: Card;
   isPlayable?: boolean;
   onPlay?: () => void;
-  onClick?: () => void;
+  onClick?: (e?: React.MouseEvent) => void;
   selected?: boolean;
+  selectionRole?: 'attacker' | 'defender' | 'target';
+  selectionBadge?: string;
   compact?: boolean;
 }
 
@@ -18,6 +20,8 @@ export const CardView: React.FC<CardViewProps> = ({
   onPlay,
   onClick,
   selected = false,
+  selectionRole,
+  selectionBadge,
   compact = false
 }) => {
   const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
@@ -36,7 +40,15 @@ export const CardView: React.FC<CardViewProps> = ({
   };
 
   const getBorderColor = () => {
-    if (selected) return 'ring-2 ring-amber-400 border-amber-400 shadow-amber-500/20 shadow-lg';
+    if (selected) {
+      if (selectionRole === 'defender') {
+        return 'ring-2 ring-blue-400 border-blue-400 shadow-blue-500/30 shadow-lg';
+      }
+      if (selectionRole === 'target') {
+        return 'ring-2 ring-rose-500 border-rose-500 shadow-rose-500/30 shadow-lg animate-pulse';
+      }
+      return 'ring-2 ring-amber-400 border-amber-400 shadow-amber-500/20 shadow-lg';
+    }
     if (isCurrentlyHighlighted) return 'ring-1 ring-amber-500/60 border-amber-500/80 shadow-amber-500/10 shadow-md';
     if (isPlayable) return 'border-emerald-500/80 hover:border-emerald-400 cursor-pointer shadow-emerald-500/10 shadow-md';
     if (card.isNamed) return 'border-amber-500/60';
@@ -61,6 +73,19 @@ export const CardView: React.FC<CardViewProps> = ({
         isExhausted ? 'opacity-60 saturate-50 translate-y-0.5' : ''
       } ${compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'}`}
     >
+      {/* Selection Role / Multi-Select Badge */}
+      {selectionBadge && (
+        <div className={`absolute -top-2.5 left-2 z-10 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider shadow-md ${
+          selectionRole === 'defender'
+            ? 'bg-blue-600 text-white border border-blue-400'
+            : selectionRole === 'target'
+            ? 'bg-rose-600 text-white border border-rose-400'
+            : 'bg-amber-500 text-zinc-950 border border-amber-300'
+        }`}>
+          {selectionBadge}
+        </div>
+      )}
+
       {/* Spacebar Zoom Trigger Button (Accessible for Touch & Mouse) */}
       <button
         type="button"

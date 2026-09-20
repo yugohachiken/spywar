@@ -39,6 +39,7 @@ export class SpywarEngine {
   gameOver: boolean;
   winner: Player | null;
   winReason: string;
+  activeDeckName?: string;
 
   constructor(config: Partial<EngineConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -245,51 +246,82 @@ export class SpywarEngine {
     return { stored: coinsStored, discarded };
   }
 
-  setupGame() {
+  setupGame(customDeckPayload?: {
+    affiliationDeck?: Card[];
+    drawDeck?: Card[];
+    missions?: Mission[];
+    deckName?: string;
+  }) {
     this.logs = [];
     this.gameOver = false;
     this.winner = null;
     this.winReason = '';
     this.currentRound = 0;
     this.actionCounter = 0;
+    this.activeDeckName = customDeckPayload?.deckName || 'Standard Deck';
 
-    const affDeck = [...AFFILIATION_CARDS].sort(() => Math.random() - 0.5);
-    const locDeck: Card[] = [];
-    LOCATION_CARDS.forEach(c => {
-      const qty = c.qty || 1;
-      for (let i = 0; i < qty; i++) locDeck.push({ ...c, id: `${c.id}_${i}` });
-    });
-    const opDeck: Card[] = [];
-    OPERATIVE_CARDS.forEach(c => {
-      const qty = c.qty || 1;
-      for (let i = 0; i < qty; i++) opDeck.push({ ...c, id: `${c.id}_${i}` });
-    });
-    const supDeck: Card[] = [];
-    SUPPORT_CARDS.forEach(c => {
-      const qty = c.qty || 1;
-      for (let i = 0; i < qty; i++) supDeck.push({ ...c, id: `${c.id}_${i}` });
-    });
+    let affDeck: Card[] = [];
+    let locDeck: Card[] = [];
+    let opDeck: Card[] = [];
+    let supDeck: Card[] = [];
 
-    locDeck.sort(() => Math.random() - 0.5);
-    opDeck.sort(() => Math.random() - 0.5);
-    supDeck.sort(() => Math.random() - 0.5);
+    if (customDeckPayload && customDeckPayload.drawDeck && customDeckPayload.drawDeck.length >= 6) {
+      affDeck = (customDeckPayload.affiliationDeck && customDeckPayload.affiliationDeck.length >= 2)
+        ? [...customDeckPayload.affiliationDeck].sort(() => Math.random() - 0.5)
+        : [...AFFILIATION_CARDS].sort(() => Math.random() - 0.5);
 
-    this.missionDeck = [...MASTER_MISSIONS].map(m => ({
-      ...m,
-      tokens: { P1: 0, P2: 0 }
-    })).sort(() => Math.random() - 0.5);
+      const allDraw = [...customDeckPayload.drawDeck].sort(() => Math.random() - 0.5);
+      // Separate for starting hands if possible
+      locDeck = allDraw.filter(c => c.type === 'Location');
+      opDeck = allDraw.filter(c => c.type === 'Operative');
+      supDeck = allDraw.filter(c => c.type === 'Support');
+
+      this.missionDeck = (customDeckPayload.missions && customDeckPayload.missions.length > 0)
+        ? [...customDeckPayload.missions].map(m => ({ ...m, tokens: { P1: 0, P2: 0 } })).sort(() => Math.random() - 0.5)
+        : [...MASTER_MISSIONS].map(m => ({ ...m, tokens: { P1: 0, P2: 0 } })).sort(() => Math.random() - 0.5);
+    } else {
+      affDeck = [...AFFILIATION_CARDS].sort(() => Math.random() - 0.5);
+      LOCATION_CARDS.forEach(c => {
+        const qty = c.qty || 1;
+        for (let i = 0; i < qty; i++) locDeck.push({ ...c, id: `${c.id}_${i}` });
+      });
+      OPERATIVE_CARDS.forEach(c => {
+        const qty = c.qty || 1;
+        for (let i = 0; i < qty; i++) opDeck.push({ ...c, id: `${c.id}_${i}` });
+      });
+      SUPPORT_CARDS.forEach(c => {
+        const qty = c.qty || 1;
+        for (let i = 0; i < qty; i++) supDeck.push({ ...c, id: `${c.id}_${i}` });
+      });
+
+      locDeck.sort(() => Math.random() - 0.5);
+      opDeck.sort(() => Math.random() - 0.5);
+      supDeck.sort(() => Math.random() - 0.5);
+
+      this.missionDeck = [...MASTER_MISSIONS].map(m => ({
+        ...m,
+        tokens: { P1: 0, P2: 0 }
+      })).sort(() => Math.random() - 0.5);
+    }
+
     this.missionsOnTable = [];
 
     // Draft Affiliation and starting 3 cards
     for (const p of this.players) {
-      const aff = affDeck.pop()!;
+      const aff = affDeck.pop() || AFFILIATION_CARDS[0];
       p.affiliation = { 
         ...aff, 
         cap: this.config.affiliationMaxCap,
         stored_coins: 0, 
         exhausted: false 
       };
-      p.hand = [locDeck.pop()!, opDeck.pop()!, supDeck.pop()!];
+
+      // Starting hand: 1 Location, 1 Operative, 1 Support (or any available 3 cards)
+      const handCard1 = locDeck.pop() || opDeck.pop() || supDeck.pop();
+      const handCard2 = opDeck.pop() || locDeck.pop() || supDeck.pop();
+      const handCard3 = supDeck.pop() || opDeck.pop() || locDeck.pop();
+      p.hand = [handCard1, handCard2, handCard3].filter((c): c is Card => !!c);
+
       p.battlefield = [];
       p.discard_pile = [];
       p.completed_missions = [];
@@ -307,7 +339,7 @@ export class SpywarEngine {
     this.drawDeck = [...locDeck, ...opDeck, ...supDeck].sort(() => Math.random() - 0.5);
     this.activePlayerIndex = 0;
 
-    this.log('P1', 'SETUP', `Game initialized. P1 drafted '${this.players[0].affiliation?.name}' (Prod: ${this.players[0].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}), P2 drafted '${this.players[1].affiliation?.name}' (Prod: ${this.players[1].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}).`);
+    this.log('P1', 'SETUP', `Game initialized with '${this.activeDeckName}'. P1 drafted '${this.players[0].affiliation?.name}' (Prod: ${this.players[0].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}), P2 drafted '${this.players[1].affiliation?.name}' (Prod: ${this.players[1].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}).`);
     this.startRound(1);
   }
 

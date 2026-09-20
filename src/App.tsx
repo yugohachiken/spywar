@@ -4,24 +4,43 @@ import { GameBoard } from './components/GameBoard';
 import { AbilityTestLab } from './components/AbilityTestLab';
 import { GodotCodeViewer } from './components/GodotCodeViewer';
 import { BatchSimulator } from './components/BatchSimulator';
+import { CardEditor } from './components/CardEditor';
+import { DeckBuilder } from './components/DeckBuilder';
+import { CardDatabaseService } from './services/cardDatabaseService';
 import { AFFILIATION_CARDS, LOCATION_CARDS, OPERATIVE_CARDS, SUPPORT_CARDS, MASTER_MISSIONS } from './engine/cardManifest';
-import { Shield, Swords, FileCode, BarChart3, BookOpen, Sparkles, Terminal, Activity, ZoomIn } from 'lucide-react';
+import { Shield, Swords, FileCode, BarChart3, BookOpen, Sparkles, Terminal, Activity, ZoomIn, Layers, Edit3 } from 'lucide-react';
 import { CardZoomProvider } from './context/CardZoomContext';
 import { ZoomedCardModal } from './components/ZoomedCardModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'board' | 'testlab' | 'godot' | 'batch' | 'dossier'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'deck' | 'editor' | 'testlab' | 'godot' | 'batch' | 'dossier'>('board');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Initialize engine once
+  // Initialize engine once with active deck configuration
   const engine = useMemo(() => {
     const inst = new SpywarEngine();
-    inst.setupGame();
+    const cardDb = CardDatabaseService.getInstance();
+    const deckData = cardDb.generateGameDeckForEngine();
+    inst.setupGame({
+      ...deckData,
+      deckName: cardDb.getActiveDeck().name
+    });
     return inst;
   }, []);
 
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handlePlayWithCustomDeck = (customDeckPayload: {
+    affiliationDeck: any[];
+    drawDeck: any[];
+    missions: any[];
+    deckName: string;
+  }) => {
+    engine.setupGame(customDeckPayload);
+    setActiveTab('board');
+    handleRefresh();
   };
 
   return (
@@ -44,13 +63,13 @@ export default function App() {
                 </h1>
               </div>
               <p className="text-[11px] text-zinc-400">
-                ISMCTS Headless Simulator, Specialized Rules &amp; Godot 4.x Suite
+                ISMCTS Headless Simulator, Custom Deck Architect &amp; Godot 4.x Suite
               </p>
             </div>
           </div>
 
           {/* Tab Navigation */}
-          <nav className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800 text-xs">
+          <nav className="flex flex-wrap items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800 text-xs">
             <button
               onClick={() => setActiveTab('board')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
@@ -61,6 +80,30 @@ export default function App() {
             >
               <Swords className="w-3.5 h-3.5 text-amber-400" />
               <span>Play Match</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('deck')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+                activeTab === 'deck'
+                  ? 'bg-zinc-800 text-cyan-300 font-semibold shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Deck Builder</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('editor')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+                activeTab === 'editor'
+                  ? 'bg-zinc-800 text-amber-300 font-semibold shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+              }`}
+            >
+              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+              <span>Card Editor</span>
             </button>
 
             <button
@@ -117,7 +160,26 @@ export default function App() {
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full">
         {activeTab === 'board' && (
-          <GameBoard engine={engine} onRefresh={handleRefresh} />
+          <GameBoard 
+            engine={engine} 
+            onRefresh={handleRefresh} 
+            onNavigateToDeckBuilder={() => setActiveTab('deck')}
+            onNavigateToCardEditor={() => setActiveTab('editor')}
+          />
+        )}
+
+        {activeTab === 'deck' && (
+          <DeckBuilder
+            onPlayWithDeck={handlePlayWithCustomDeck}
+            onNavigateToCardEditor={() => setActiveTab('editor')}
+          />
+        )}
+
+        {activeTab === 'editor' && (
+          <CardEditor
+            onDeckOrCardUpdated={handleRefresh}
+            onNavigateToDeckBuilder={() => setActiveTab('deck')}
+          />
         )}
 
         {activeTab === 'testlab' && (

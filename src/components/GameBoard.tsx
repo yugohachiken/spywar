@@ -3,12 +3,13 @@ import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { CombatPlanner, CombatOperationType } from './CombatPlanner';
 import { InlineDefensePanel } from './InlineDefensePanel';
 import { subscribeToMultiplayerRoom, syncRoomState, deleteMultiplayerRoom } from '../services/multiplayerService';
 import { useCardZoom } from '../context/CardZoomContext';
+import { CardDatabaseService } from '../services/cardDatabaseService';
 
 interface PendingDefenseState {
   attacker: Player;
@@ -25,16 +26,18 @@ interface PendingDefenseState {
 interface GameBoardProps {
   engine: SpywarEngine;
   onRefresh: () => void;
+  onNavigateToDeckBuilder?: () => void;
+  onNavigateToCardEditor?: () => void;
 }
 
-export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
+export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavigateToDeckBuilder, onNavigateToCardEditor }) => {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [selectedAttackers, setSelectedAttackers] = useState<Card[]>([]);
   const [selectedCombatOp, setSelectedCombatOp] = useState<CombatOperationType | null>(null);
   const [selectedCombatTarget, setSelectedCombatTarget] = useState<Card | null>(null);
   const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const [aiThinking, setAiThinking] = useState(false);
-  const [autoAi, setAutoAi] = useState(false);
+  const [autoAi, setAutoAi] = useState(true);
   const [gameMode, setGameMode] = useState<GameMode>('human_vs_ai');
   const [aiSpeed, setAiSpeed] = useState<number>(450); // ms delay between AI actions
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -142,7 +145,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
     }
     setGameMode(mode);
     engine.setGameMode(mode);
-    setAutoAi(false);
+    const shouldAuto = mode === 'human_vs_ai' || mode === 'ai_vs_ai';
+    setAutoAi(shouldAuto);
     if (autoAiTimerRef.current) {
       clearTimeout(autoAiTimerRef.current);
     }
@@ -541,11 +545,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
   };
 
   const handleResetGame = () => {
-    setAutoAi(false);
+    const shouldAuto = gameMode === 'human_vs_ai' || gameMode === 'ai_vs_ai';
+    setAutoAi(shouldAuto);
     if (autoAiTimerRef.current) clearTimeout(autoAiTimerRef.current);
     setPendingDefense(null);
     clearCombatSelection();
-    engine.setupGame();
+
+    const cardDb = CardDatabaseService.getInstance();
+    const deckData = cardDb.generateGameDeckForEngine();
+    engine.setupGame({
+      ...deckData,
+      deckName: cardDb.getActiveDeck().name,
+    });
     engine.setGameMode(gameMode);
     setSelectedCard(null);
     onRefresh();
@@ -829,6 +840,59 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh }) => {
             Reset
           </button>
         </div>
+      </div>
+
+      {/* ACTIVE DECK & STATUS BAR */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-zinc-400 font-mono text-[11px] flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-amber-400" />
+            Deck:
+          </span>
+          <span className="font-semibold text-white bg-zinc-800 px-2 py-0.5 rounded border border-zinc-700 text-[11px]">
+            {engine.activeDeckName || 'Official Standard'}
+          </span>
+          {onNavigateToDeckBuilder && (
+            <button
+              onClick={onNavigateToDeckBuilder}
+              className="text-cyan-400 hover:text-cyan-300 text-[11px] underline font-medium ml-1"
+            >
+              Customize Deck
+            </button>
+          )}
+          {onNavigateToCardEditor && (
+            <button
+              onClick={onNavigateToCardEditor}
+              className="text-amber-400 hover:text-amber-300 text-[11px] underline font-medium ml-1"
+            >
+              Card Editor
+            </button>
+          )}
+        </div>
+
+        {/* AI Action Status Banner */}
+        {activePlayer.isAI && !engine.gameOver && (
+          <div className="flex items-center gap-2">
+            {autoAi ? (
+              <span className="text-indigo-300 text-[11px] font-mono flex items-center gap-1.5 animate-pulse">
+                <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                AI ({activePlayer.pid}) is executing turn...
+              </span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-amber-300 text-[11px] font-mono">
+                  AI paused. Press <strong>S</strong> or click:
+                </span>
+                <button
+                  onClick={() => setAutoAi(true)}
+                  className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold"
+                >
+                  Enable Auto AI
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Game Over Banner */}

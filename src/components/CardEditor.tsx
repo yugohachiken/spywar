@@ -1,0 +1,742 @@
+import React, { useState, useMemo } from 'react';
+import { Card, CardType } from '../types/spywar';
+import { CardDatabaseService } from '../services/cardDatabaseService';
+import { 
+  Plus, 
+  Trash2, 
+  Edit3, 
+  RotateCcw, 
+  Download, 
+  Upload, 
+  Search, 
+  Sparkles, 
+  Shield, 
+  Swords, 
+  Coins, 
+  Layers, 
+  Check, 
+  AlertCircle,
+  X
+} from 'lucide-react';
+
+interface CardEditorProps {
+  onDeckOrCardUpdated?: () => void;
+  onNavigateToDeckBuilder?: () => void;
+}
+
+export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onNavigateToDeckBuilder }) => {
+  const cardDb = useMemo(() => CardDatabaseService.getInstance(), []);
+  const [cards, setCards] = useState<Card[]>(() => cardDb.getAllCards());
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Modal / Drawer state
+  const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const showNotify = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const refreshList = () => {
+    const updated = cardDb.getAllCards();
+    setCards(updated);
+    if (onDeckOrCardUpdated) onDeckOrCardUpdated();
+  };
+
+  // Filtered cards
+  const filteredCards = useMemo(() => {
+    return cards.filter(c => {
+      const matchesType = selectedTypeFilter === 'All' || c.type === selectedTypeFilter;
+      const matchesSearch = searchQuery.trim() === '' || 
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.abilityText && c.abilityText.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        c.type.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesType && matchesSearch;
+    });
+  }, [cards, selectedTypeFilter, searchQuery]);
+
+  // Handle open editor for existing card
+  const handleEdit = (card: Card) => {
+    setIsCreatingNew(false);
+    setEditingCard({ ...card });
+  };
+
+  // Handle open creator for new card
+  const handleCreateNew = (type: CardType = 'Operative') => {
+    setIsCreatingNew(true);
+    const newCard: Card = {
+      id: `custom_${type.toLowerCase()}_${Date.now()}`,
+      name: `New ${type}`,
+      type,
+      cost: type === 'Affiliation' ? 0 : 2,
+      qty: type === 'Affiliation' ? 1 : 2,
+      off: type === 'Operative' ? 2 : undefined,
+      def: type === 'Operative' ? 2 : undefined,
+      ass: type === 'Operative' ? 0 : undefined,
+      raid: type === 'Operative' ? 0 : undefined,
+      sub: type === 'Operative' ? 0 : undefined,
+      production: (type === 'Location' || type === 'Affiliation') ? 2 : undefined,
+      cap: (type === 'Location' || type === 'Affiliation') ? 2 : undefined,
+      abilityText: 'Card rules and special instructions here.'
+    };
+    setEditingCard(newCard);
+  };
+
+  // Save Card
+  const handleSaveCard = () => {
+    if (!editingCard) return;
+    if (!editingCard.name.trim()) {
+      alert('Card name cannot be empty.');
+      return;
+    }
+
+    cardDb.saveCard(editingCard);
+    refreshList();
+    setEditingCard(null);
+    showNotify(`Card '${editingCard.name}' successfully saved!`);
+  };
+
+  // Delete Card
+  const handleDeleteCard = (id: string) => {
+    const success = cardDb.deleteCard(id);
+    if (success) {
+      refreshList();
+      setDeleteConfirmId(null);
+      showNotify('Card successfully deleted from database and decks.');
+    }
+  };
+
+  // Reset to Defaults
+  const handleResetDefaults = () => {
+    if (window.confirm('Reset all cards and decks to official factory defaults? Any custom cards will be erased.')) {
+      cardDb.resetCardsToDefault();
+      refreshList();
+      showNotify('Cards reset to official factory defaults.');
+    }
+  };
+
+  // Export JSON
+  const handleExportJSON = () => {
+    const json = cardDb.exportDatabaseJSON();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `spywar-cards-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotify('Card database exported to JSON.');
+  };
+
+  // Import JSON
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const res = cardDb.importDatabaseJSON(content);
+      if (res.success) {
+        refreshList();
+        showNotify(res.message);
+      } else {
+        alert(res.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header & Overview */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
+                Card Editor &amp; Creator
+                <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono border border-zinc-700">
+                  {cards.length} Cards in Manifest
+                </span>
+              </h2>
+              <p className="text-xs text-zinc-400">
+                Design custom operatives, tune attack/defense values, configure resource capacities, or author custom rule mechanics.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => handleCreateNew('Operative')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold text-xs transition-all shadow-md shadow-amber-500/20 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create New Card</span>
+          </button>
+
+          {onNavigateToDeckBuilder && (
+            <button
+              onClick={onNavigateToDeckBuilder}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-all"
+            >
+              <Layers className="w-4 h-4 text-cyan-400" />
+              <span>Open Deck Builder</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-1 border-l border-zinc-800 pl-2">
+            <button
+              onClick={handleExportJSON}
+              title="Export database to JSON file"
+              className="p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-all"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <label
+              title="Import cards from JSON"
+              className="p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-all cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+            </label>
+            <button
+              onClick={handleResetDefaults}
+              title="Reset all cards to factory defaults"
+              className="p-2 rounded-lg bg-zinc-800/80 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-400 border border-zinc-700/60 transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Notification toast */}
+      {notification && (
+        <div className="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in">
+          <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span>{notification}</span>
+        </div>
+      )}
+
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-zinc-900/50 p-2.5 rounded-xl border border-zinc-800/80">
+        {/* Category Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+          {['All', 'Operative', 'Location', 'Support', 'Affiliation'].map(type => (
+            <button
+              key={type}
+              onClick={() => setSelectedTypeFilter(type)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                selectedTypeFilter === type
+                  ? 'bg-amber-500 text-black font-semibold shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+              }`}
+            >
+              {type === 'All' ? `All (${cards.length})` : `${type}s (${cards.filter(c => c.type === type).length})`}
+            </button>
+          ))}
+        </div>
+
+        {/* Search Input */}
+        <div className="relative w-full sm:w-64">
+          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search cards, skills, rules..."
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500"
+          />
+        </div>
+      </div>
+
+      {/* Card Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {filteredCards.map(card => {
+          const isOperative = card.type === 'Operative';
+          const isLocation = card.type === 'Location';
+          const isAffiliation = card.type === 'Affiliation';
+          const isSupport = card.type === 'Support';
+
+          return (
+            <div
+              key={card.id}
+              className={`rounded-xl border p-4 flex flex-col justify-between transition-all bg-zinc-900/60 hover:bg-zinc-900 hover:border-zinc-700 ${
+                isOperative ? 'border-amber-500/20' :
+                isLocation ? 'border-emerald-500/20' :
+                isAffiliation ? 'border-rose-500/20' :
+                'border-cyan-500/20'
+              }`}
+            >
+              <div>
+                {/* Header: Type and Cost */}
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded uppercase font-bold tracking-wider ${
+                    isOperative ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
+                    isLocation ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                    isAffiliation ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
+                    'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                  }`}>
+                    {card.type} {card.isNamed ? '★ Unique' : ''}
+                  </span>
+
+                  <div className="flex items-center gap-1.5 text-xs font-mono">
+                    <span className="text-zinc-400">Qty:</span>
+                    <span className="text-zinc-200 font-bold">{card.qty || 1}</span>
+                    {card.cost > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300 font-bold border border-amber-500/30 flex items-center gap-0.5">
+                        <Coins className="w-3 h-3 text-amber-400" />
+                        {card.cost}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Card Title */}
+                <h3 className="font-bold text-sm text-white mb-1.5 line-clamp-1">{card.name}</h3>
+
+                {/* Stat Badges for Operatives */}
+                {isOperative && (
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[11px] font-mono text-zinc-200 border border-zinc-700 flex items-center gap-1">
+                      <Swords className="w-3 h-3 text-rose-400" />
+                      OFF: <strong>{card.off ?? 1}</strong>
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[11px] font-mono text-zinc-200 border border-zinc-700 flex items-center gap-1">
+                      <Shield className="w-3 h-3 text-blue-400" />
+                      DEF: <strong>{card.def ?? 1}</strong>
+                    </span>
+
+                    {(card.ass || 0) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-950/40 text-[10px] font-mono text-rose-300 border border-rose-500/30">
+                        ASS: {card.ass}
+                      </span>
+                    )}
+                    {(card.raid || 0) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-950/40 text-[10px] font-mono text-amber-300 border border-amber-500/30">
+                        RAID: {card.raid}
+                      </span>
+                    )}
+                    {(card.sub || 0) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-purple-950/40 text-[10px] font-mono text-purple-300 border border-purple-500/30">
+                        SUB: {card.sub}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Stat Badges for Locations / Affiliations */}
+                {(isLocation || isAffiliation) && (
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-950/40 text-[11px] font-mono text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <Coins className="w-3 h-3 text-emerald-400" />
+                      Prod: <strong>+{card.production ?? 1}</strong>
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[11px] font-mono text-zinc-300 border border-zinc-700">
+                      Cap: <strong>{card.cap ?? 1}</strong>
+                    </span>
+                  </div>
+                )}
+
+                {/* Rules / Ability Text */}
+                <p className="text-xs text-zinc-300 bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80 min-h-[48px] leading-relaxed">
+                  {card.abilityText || <span className="italic text-zinc-500">No special text</span>}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 mt-3 border-t border-zinc-800/80 flex items-center justify-between">
+                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[120px]">
+                  ID: {card.id}
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleEdit(card)}
+                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 border border-zinc-700 transition-all"
+                    title="Edit card stats and content"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    onClick={() => setDeleteConfirmId(card.id)}
+                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-700 transition-all"
+                    title="Delete card"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {filteredCards.length === 0 && (
+        <div className="py-16 text-center rounded-2xl bg-zinc-900/30 border border-dashed border-zinc-800">
+          <AlertCircle className="w-8 h-8 text-zinc-500 mx-auto mb-2" />
+          <p className="text-sm text-zinc-400">No cards found matching your search or filters.</p>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <h3 className="font-bold text-base text-white">Delete Card?</h3>
+            <p className="text-xs text-zinc-300">
+              Are you sure you want to permanently delete this card? It will also be removed from any active decks.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteCard(deleteConfirmId)}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Card Editor / Creator Modal */}
+      {editingCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-5 my-auto max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                  {isCreatingNew ? <Plus className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">
+                    {isCreatingNew ? 'Create New Card' : `Edit: ${editingCard.name}`}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 font-mono">
+                    ID: {editingCard.id}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setEditingCard(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Layout: Left preview, Right form */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card Preview */}
+              <div className="flex flex-col items-center">
+                <span className="text-[11px] font-mono text-zinc-400 mb-2 uppercase tracking-wider">Live Preview</span>
+                <div className={`w-56 rounded-2xl border-2 p-4 flex flex-col justify-between shadow-2xl bg-zinc-950 ${
+                  editingCard.type === 'Operative' ? 'border-amber-500/60 shadow-amber-500/10' :
+                  editingCard.type === 'Location' ? 'border-emerald-500/60 shadow-emerald-500/10' :
+                  editingCard.type === 'Affiliation' ? 'border-rose-500/60 shadow-rose-500/10' :
+                  'border-cyan-500/60 shadow-cyan-500/10'
+                }`}>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300 uppercase">
+                        {editingCard.type}
+                      </span>
+                      {editingCard.cost > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500 text-black text-xs font-extrabold flex items-center gap-0.5">
+                          <Coins className="w-3 h-3" />
+                          {editingCard.cost}
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-bold text-sm text-white leading-tight mb-2">
+                      {editingCard.name || 'Untitled Card'}
+                    </h4>
+
+                    {editingCard.type === 'Operative' && (
+                      <div className="grid grid-cols-2 gap-1 mb-2">
+                        <div className="bg-zinc-900 rounded p-1 text-center border border-zinc-800">
+                          <div className="text-[9px] text-zinc-400">OFFENSE</div>
+                          <div className="font-bold text-xs text-rose-400">{editingCard.off ?? 1}</div>
+                        </div>
+                        <div className="bg-zinc-900 rounded p-1 text-center border border-zinc-800">
+                          <div className="text-[9px] text-zinc-400">DEFENSE</div>
+                          <div className="font-bold text-xs text-blue-400">{editingCard.def ?? 1}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {(editingCard.type === 'Location' || editingCard.type === 'Affiliation') && (
+                      <div className="grid grid-cols-2 gap-1 mb-2">
+                        <div className="bg-zinc-900 rounded p-1 text-center border border-zinc-800">
+                          <div className="text-[9px] text-zinc-400">PROD</div>
+                          <div className="font-bold text-xs text-emerald-400">+{editingCard.production ?? 1}</div>
+                        </div>
+                        <div className="bg-zinc-900 rounded p-1 text-center border border-zinc-800">
+                          <div className="text-[9px] text-zinc-400">CAPACITY</div>
+                          <div className="font-bold text-xs text-amber-400">{editingCard.cap ?? 1}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {editingCard.type === 'Operative' && (
+                      <div className="flex items-center justify-around bg-zinc-900/80 rounded py-1 px-1.5 mb-2 text-[10px] font-mono border border-zinc-800/80">
+                        <span className="text-rose-300">ASS: {editingCard.ass ?? 0}</span>
+                        <span className="text-amber-300">RAID: {editingCard.raid ?? 0}</span>
+                        <span className="text-purple-300">SUB: {editingCard.sub ?? 0}</span>
+                      </div>
+                    )}
+
+                    <div className="bg-zinc-900/90 rounded-lg p-2 border border-zinc-800 min-h-[70px] text-[11px] text-zinc-300 leading-relaxed">
+                      {editingCard.abilityText || 'Ability rules text...'}
+                    </div>
+                  </div>
+
+                  <div className="mt-2 pt-2 border-t border-zinc-800/80 flex items-center justify-between text-[9px] font-mono text-zinc-500">
+                    <span>{editingCard.isNamed ? '★ UNIQUE' : 'COMMON'}</span>
+                    <span>QTY: {editingCard.qty || 1}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Form Controls */}
+              <div className="md:col-span-2 space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Card Name */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Card Name</label>
+                    <input
+                      type="text"
+                      value={editingCard.name}
+                      onChange={e => setEditingCard({ ...editingCard, name: e.target.value })}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  {/* Card Type */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Card Type</label>
+                    <select
+                      value={editingCard.type}
+                      onChange={e => {
+                        const newType = e.target.value as CardType;
+                        setEditingCard({
+                          ...editingCard,
+                          type: newType,
+                          cost: newType === 'Affiliation' ? 0 : editingCard.cost,
+                          off: newType === 'Operative' ? (editingCard.off ?? 2) : undefined,
+                          def: newType === 'Operative' ? (editingCard.def ?? 2) : undefined,
+                          production: (newType === 'Location' || newType === 'Affiliation') ? (editingCard.production ?? 2) : undefined,
+                          cap: (newType === 'Location' || newType === 'Affiliation') ? (editingCard.cap ?? 2) : undefined,
+                        });
+                      }}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="Operative">Operative</option>
+                      <option value="Location">Location</option>
+                      <option value="Support">Support</option>
+                      <option value="Affiliation">Affiliation</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {/* Cost */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Coin Cost</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={15}
+                      value={editingCard.cost}
+                      disabled={editingCard.type === 'Affiliation'}
+                      onChange={e => setEditingCard({ ...editingCard, cost: parseInt(e.target.value) || 0 })}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  {/* Copies in Deck */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Default Copies</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editingCard.qty || 1}
+                      onChange={e => setEditingCard({ ...editingCard, qty: parseInt(e.target.value) || 1 })}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  {/* Is Named */}
+                  {editingCard.type === 'Operative' && (
+                    <div className="flex items-center gap-2 pt-5">
+                      <input
+                        type="checkbox"
+                        id="isNamedCheck"
+                        checked={!!editingCard.isNamed}
+                        onChange={e => setEditingCard({ ...editingCard, isNamed: e.target.checked })}
+                        className="rounded bg-zinc-950 border-zinc-700 text-amber-500 focus:ring-0"
+                      />
+                      <label htmlFor="isNamedCheck" className="text-xs text-zinc-300 cursor-pointer">
+                        Unique Character
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* Operative Combat Stats */}
+                {editingCard.type === 'Operative' && (
+                  <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800 space-y-2.5">
+                    <span className="text-[11px] font-mono text-zinc-400 uppercase font-semibold">
+                      Operative Combat &amp; Skills
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Offense</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={editingCard.off ?? 1}
+                          onChange={e => setEditingCard({ ...editingCard, off: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Defense</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={editingCard.def ?? 1}
+                          onChange={e => setEditingCard({ ...editingCard, def: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Assassin</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={editingCard.ass ?? 0}
+                          onChange={e => setEditingCard({ ...editingCard, ass: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Raid</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={editingCard.raid ?? 0}
+                          onChange={e => setEditingCard({ ...editingCard, raid: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Subterfuge</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={editingCard.sub ?? 0}
+                          onChange={e => setEditingCard({ ...editingCard, sub: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Location / Affiliation Economics */}
+                {(editingCard.type === 'Location' || editingCard.type === 'Affiliation') && (
+                  <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800 space-y-2.5">
+                    <span className="text-[11px] font-mono text-zinc-400 uppercase font-semibold">
+                      Economic Generation &amp; Capacity
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Production (coins/turn)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={editingCard.production ?? 2}
+                          onChange={e => setEditingCard({ ...editingCard, production: parseInt(e.target.value) || 1 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-400 mb-1">Coin Storage Capacity</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={15}
+                          value={editingCard.cap ?? 2}
+                          onChange={e => setEditingCard({ ...editingCard, cap: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rules & Ability Text */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">
+                    Card Ability / Rules Text
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editingCard.abilityText || ''}
+                    onChange={e => setEditingCard({ ...editingCard, abilityText: e.target.value })}
+                    placeholder="Describe how the card functions during play..."
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 leading-relaxed"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setEditingCard(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCard}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md shadow-amber-500/20 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

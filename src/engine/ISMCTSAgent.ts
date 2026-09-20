@@ -54,6 +54,12 @@ export class ISMCTSAgent {
     const winAction = legalActions.find(a => a.cardName === 'Global Dominion Plan');
     if (winAction) return winAction;
 
+    // High-priority heuristic: If AI has unexhausted production and 0 active turn coins, produce resources
+    const tapProd = legalActions.find(a => a.type === 'TAP_PROD');
+    if (tapProd && activePlayer.current_turn_coins === 0) {
+      return tapProd;
+    }
+
     const root = new MCTSNode(null, null, activePlayer.pid);
     root.untriedActions = [...legalActions];
 
@@ -88,9 +94,13 @@ export class ISMCTSAgent {
       let depth = 0;
       while (depth < 4 && !simEngine.gameOver) {
         const acts = simEngine.getLegalActions(simPlayer, simOpp);
-        if (!acts || acts.length === 0 || acts.some(a => a.type === 'PASS')) break;
-        const randomAct = acts[Math.floor(Math.random() * acts.length)];
+        if (!acts || acts.length === 0) break;
+        // Prioritize non-pass actions in rollout so AI explores proactive plays
+        const nonPassActs = acts.filter(a => a.type !== 'PASS');
+        const candidateActs = (nonPassActs.length > 0 && Math.random() < 0.75) ? nonPassActs : acts;
+        const randomAct = candidateActs[Math.floor(Math.random() * candidateActs.length)];
         simEngine.executeAction(simPlayer, simOpp, randomAct);
+        if (randomAct.type === 'PASS') break;
         depth++;
       }
 

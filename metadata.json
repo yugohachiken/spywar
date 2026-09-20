@@ -1,6 +1,6 @@
 {
   "name": "SPYWAR Engine Architect & Godot Suite",
-  "description": "Headless ISMCTS game engine, real-time online Human vs Human multiplayer over Firebase, specialized card ability rules, defensive intercept listeners, and production-ready Godot 4 GDScript implementation for SPYWAR.",
+  "description": "Headless ISMCTS game engine, Card Editor & Creator, Deck Builder & preset designer, real-time online Human vs Human multiplayer over Firebase, specialized card ability rules, and production-ready Godot 4 GDScript implementation for SPYWAR.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

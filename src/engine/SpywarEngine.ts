@@ -1,6 +1,8 @@
 import { Card, Mission, Player, Action, LogEntry, TurnTelemetry, TurnPhase } from '../types/spywar';
 import { AFFILIATION_CARDS, LOCATION_CARDS, OPERATIVE_CARDS, SUPPORT_CARDS, MASTER_MISSIONS } from './cardManifest';
 
+export type InitiativeRule = 'HIGHEST_PROD' | 'LOWEST_PROD' | 'RANDOM';
+
 export interface EngineConfig {
   rounds: number;
   cardsDrawnPerTurn: number;
@@ -11,6 +13,7 @@ export interface EngineConfig {
   locationSummonState: 'R' | 'E';
   startingMissionCards: number;
   maxMissionsInPlay: number;
+  initiativeRule: InitiativeRule;
 }
 
 export const DEFAULT_CONFIG: EngineConfig = {
@@ -22,8 +25,27 @@ export const DEFAULT_CONFIG: EngineConfig = {
   operativeSummonState: 'R',
   locationSummonState: 'R',
   startingMissionCards: 1,
-  maxMissionsInPlay: 0
+  maxMissionsInPlay: 0,
+  initiativeRule: 'HIGHEST_PROD'
 };
+
+export interface MatchTelemetry {
+  cardsDrawn: {
+    byType: Record<string, number>;
+    byCard: Record<string, { id: string; name: string; type: string; count: number }>;
+    total: number;
+  };
+  cardsPlayed: {
+    byType: Record<string, number>;
+    byCard: Record<string, { id: string; name: string; type: string; count: number }>;
+    total: number;
+  };
+  missionsWon: {
+    byMission: Record<string, { id: string; name: string; points: number; count: number; wonByP1: number; wonByP2: number }>;
+    byPlayer: Record<'P1' | 'P2', number>;
+    total: number;
+  };
+}
 
 export class SpywarEngine {
   config: EngineConfig;
@@ -40,6 +62,7 @@ export class SpywarEngine {
   winner: Player | null;
   winReason: string;
   activeDeckName?: string;
+  matchTelemetry: MatchTelemetry;
 
   constructor(config: Partial<EngineConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -55,6 +78,89 @@ export class SpywarEngine {
     this.gameOver = false;
     this.winner = null;
     this.winReason = '';
+    this.matchTelemetry = this.createEmptyMatchTelemetry();
+  }
+
+  createEmptyMatchTelemetry(): MatchTelemetry {
+    return {
+      cardsDrawn: {
+        byType: { Operative: 0, Location: 0, Support: 0 },
+        byCard: {},
+        total: 0
+      },
+      cardsPlayed: {
+        byType: { Operative: 0, Location: 0, Support: 0 },
+        byCard: {},
+        total: 0
+      },
+      missionsWon: {
+        byMission: {},
+        byPlayer: { P1: 0, P2: 0 },
+        total: 0
+      }
+    };
+  }
+
+  resetMatchTelemetry() {
+    this.matchTelemetry = this.createEmptyMatchTelemetry();
+  }
+
+  recordCardDrawn(card: Card) {
+    if (!card) return;
+    const type = card.type || 'Unknown';
+    this.matchTelemetry.cardsDrawn.byType[type] = (this.matchTelemetry.cardsDrawn.byType[type] || 0) + 1;
+    this.matchTelemetry.cardsDrawn.total++;
+    const cardKey = card.name || card.id;
+    if (!this.matchTelemetry.cardsDrawn.byCard[cardKey]) {
+      this.matchTelemetry.cardsDrawn.byCard[cardKey] = {
+        id: card.id,
+        name: card.name,
+        type: card.type,
+        count: 0
+      };
+    }
+    this.matchTelemetry.cardsDrawn.byCard[cardKey].count++;
+  }
+
+  recordCardPlayed(card: Card) {
+    if (!card) return;
+    const type = card.type || 'Unknown';
+    this.matchTelemetry.cardsPlayed.byType[type] = (this.matchTelemetry.cardsPlayed.byType[type] || 0) + 1;
+    this.matchTelemetry.cardsPlayed.total++;
+    const cardKey = card.name || card.id;
+    if (!this.matchTelemetry.cardsPlayed.byCard[cardKey]) {
+      this.matchTelemetry.cardsPlayed.byCard[cardKey] = {
+        id: card.id,
+        name: card.name,
+        type: card.type,
+        count: 0
+      };
+    }
+    this.matchTelemetry.cardsPlayed.byCard[cardKey].count++;
+  }
+
+  recordMissionWon(player: Player, mission: Mission) {
+    if (!mission) return;
+    const key = mission.name || mission.id;
+    if (!this.matchTelemetry.missionsWon.byMission[key]) {
+      this.matchTelemetry.missionsWon.byMission[key] = {
+        id: mission.id,
+        name: mission.name,
+        points: mission.points,
+        count: 0,
+        wonByP1: 0,
+        wonByP2: 0
+      };
+    }
+    this.matchTelemetry.missionsWon.byMission[key].count++;
+    if (player.pid === 'P1') {
+      this.matchTelemetry.missionsWon.byMission[key].wonByP1++;
+      this.matchTelemetry.missionsWon.byPlayer.P1++;
+    } else {
+      this.matchTelemetry.missionsWon.byMission[key].wonByP2++;
+      this.matchTelemetry.missionsWon.byPlayer.P2++;
+    }
+    this.matchTelemetry.missionsWon.total++;
   }
 
   setGameMode(mode: 'human_vs_ai' | 'ai_vs_ai' | 'pass_and_play' | 'online_multiplayer') {
@@ -259,6 +365,7 @@ export class SpywarEngine {
     this.currentRound = 0;
     this.actionCounter = 0;
     this.activeDeckName = customDeckPayload?.deckName || 'Standard Deck';
+    this.resetMatchTelemetry();
 
     let affDeck: Card[] = [];
     let locDeck: Card[] = [];
@@ -321,6 +428,9 @@ export class SpywarEngine {
       const handCard2 = opDeck.pop() || locDeck.pop() || supDeck.pop();
       const handCard3 = supDeck.pop() || opDeck.pop() || locDeck.pop();
       p.hand = [handCard1, handCard2, handCard3].filter((c): c is Card => !!c);
+      for (const c of p.hand) {
+        this.recordCardDrawn(c);
+      }
 
       p.battlefield = [];
       p.discard_pile = [];
@@ -329,17 +439,66 @@ export class SpywarEngine {
       this.resetTurnTelemetry(p);
     }
 
-    // Determine Initiative (highest production goes first)
-    if ((this.players[1].affiliation?.production || 0) > (this.players[0].affiliation?.production || 0)) {
+    // Determine Initiative based on initiativeRule:
+    // Option 1: 'HIGHEST_PROD' (Default, Highest Affiliation Production Plays first)
+    // Option 2: 'LOWEST_PROD' (Lowest Affiliation Production Plays first)
+    // Option 3: 'RANDOM' (Random Initiative, not based on cards)
+    const rule: InitiativeRule = this.config.initiativeRule || 'HIGHEST_PROD';
+    const prod0 = this.players[0].affiliation?.production || 0;
+    const prod1 = this.players[1].affiliation?.production || 0;
+
+    let shouldSwap = false;
+    let initiativeReason = '';
+
+    if (rule === 'HIGHEST_PROD') {
+      if (prod1 > prod0) {
+        shouldSwap = true;
+        initiativeReason = `Higher Production (${prod1} > ${prod0})`;
+      } else if (prod0 > prod1) {
+        shouldSwap = false;
+        initiativeReason = `Higher Production (${prod0} > ${prod1})`;
+      } else {
+        shouldSwap = Math.random() < 0.5;
+        initiativeReason = `Tied Production (${prod0} vs ${prod1}) resolved by coin flip`;
+      }
+    } else if (rule === 'LOWEST_PROD') {
+      if (prod1 < prod0) {
+        shouldSwap = true;
+        initiativeReason = `Lower Production (${prod1} < ${prod0})`;
+      } else if (prod0 < prod1) {
+        shouldSwap = false;
+        initiativeReason = `Lower Production (${prod0} < ${prod1})`;
+      } else {
+        shouldSwap = Math.random() < 0.5;
+        initiativeReason = `Tied Production (${prod0} vs ${prod1}) resolved by coin flip`;
+      }
+    } else if (rule === 'RANDOM') {
+      shouldSwap = Math.random() < 0.5;
+      initiativeReason = `Random 50/50 coin flip (card production ignored)`;
+    }
+
+    if (shouldSwap) {
       this.players.reverse();
       this.players[0].pid = 'P1';
       this.players[1].pid = 'P2';
+      // Sync display names with P1/P2 assignments if standard names are used
+      if (this.players[0].isAI && !this.players[1].isAI) {
+        this.players[0].name = 'Player 1 (AI)';
+        this.players[1].name = 'Player 2 (Human)';
+      } else if (!this.players[0].isAI && this.players[1].isAI) {
+        this.players[0].name = 'Player 1 (Human)';
+        this.players[1].name = 'Player 2 (AI)';
+      }
     }
 
     this.drawDeck = [...locDeck, ...opDeck, ...supDeck].sort(() => Math.random() - 0.5);
     this.activePlayerIndex = 0;
 
-    this.log('P1', 'SETUP', `Game initialized with '${this.activeDeckName}'. P1 drafted '${this.players[0].affiliation?.name}' (Prod: ${this.players[0].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}), P2 drafted '${this.players[1].affiliation?.name}' (Prod: ${this.players[1].affiliation?.production}, Cap: ${this.config.affiliationMaxCap}).`);
+    const ruleLabel = 
+      rule === 'HIGHEST_PROD' ? 'Highest Affiliation Production' :
+      rule === 'LOWEST_PROD' ? 'Lowest Affiliation Production' : 'Random Initiative';
+
+    this.log('P1', 'SETUP', `Game initialized with '${this.activeDeckName}'. Initiative rule: [${ruleLabel}] -> P1 awarded to ${this.players[0].name} (${this.players[0].affiliation?.name}, Prod: ${this.players[0].affiliation?.production}) due to ${initiativeReason}. P2 is ${this.players[1].name} (${this.players[1].affiliation?.name}, Prod: ${this.players[1].affiliation?.production}).`);
     this.startRound(1);
   }
 
@@ -386,6 +545,7 @@ export class SpywarEngine {
         const c = this.drawDeck.pop()!;
         player.hand.push(c);
         drawn.push(c.name);
+        this.recordCardDrawn(c);
       }
     }
 
@@ -508,6 +668,7 @@ export class SpywarEngine {
         if (current >= mission.req) {
           player.completed_missions.push(mission);
           player.mission_points += mission.points;
+          this.recordMissionWon(player, mission);
           this.missionsOnTable.splice(i, 1);
           this.log(player.pid, 'MISSION-CLAIM', `★ WON '${mission.name}' (+${mission.points} pts)!`);
 
@@ -1325,6 +1486,7 @@ export class SpywarEngine {
         if (this.drawDeck.length > 0 && player.hand.length < this.config.maxHandSize) {
           const drawn = this.drawDeck.pop()!;
           player.hand.push(drawn);
+          this.recordCardDrawn(drawn);
           this.log(player.pid, 'LOC-ABILITY', `${card.name} tapped: Drew '${drawn.name}'.`);
           return { success: true, message: `Drew ${drawn.name}.` };
         }
@@ -1372,6 +1534,7 @@ export class SpywarEngine {
       if (idx !== -1) player.hand.splice(idx, 1);
 
       player.telemetry.cardsPlayedThisTurn++;
+      this.recordCardPlayed(card);
 
       if (card.isNamed) {
         player.telemetry.playedNamedThisTurn = true;

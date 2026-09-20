@@ -16,10 +16,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'board' | 'deck' | 'editor' | 'testlab' | 'godot' | 'batch' | 'dossier'>('board');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Initialize engine once with active deck configuration
+  // Initialize engine once with active deck configuration and saved game config
   const engine = useMemo(() => {
-    const inst = new SpywarEngine();
     const cardDb = CardDatabaseService.getInstance();
+    const savedConfig = cardDb.getGameConfig();
+    const inst = new SpywarEngine(savedConfig);
     const deckData = cardDb.generateGameDeckForEngine();
     inst.setupGame({
       ...deckData,

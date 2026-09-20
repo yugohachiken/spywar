@@ -16,7 +16,11 @@ import {
   Layers, 
   Check, 
   AlertCircle,
-  X
+  X,
+  Lock,
+  GitBranch,
+  Copy,
+  ShieldAlert
 } from 'lucide-react';
 
 interface CardEditorProps {
@@ -33,12 +37,14 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
   // Modal / Drawer state
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [isBranchingOriginal, setIsBranchingOriginal] = useState(false);
+  const [sourceOriginalCard, setSourceOriginalCard] = useState<Card | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
   const showNotify = (msg: string) => {
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 3500);
   };
 
   const refreshList = () => {
@@ -59,15 +65,41 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
     });
   }, [cards, selectedTypeFilter, searchQuery]);
 
-  // Handle open editor for existing card
+  // Handle open editor for existing card (branches if original)
   const handleEdit = (card: Card) => {
+    const isOriginal = cardDb.isOriginalCard(card.id) || !!card.isOriginal;
     setIsCreatingNew(false);
-    setEditingCard({ ...card });
+
+    if (isOriginal) {
+      setIsBranchingOriginal(true);
+      setSourceOriginalCard(card);
+      setEditingCard({
+        ...card,
+        name: card.name.includes('(Custom)') ? card.name : `${card.name} (Custom)`,
+        isOriginal: false,
+        parentCardId: card.id,
+      });
+    } else {
+      setIsBranchingOriginal(false);
+      setSourceOriginalCard(null);
+      setEditingCard({ ...card });
+    }
+  };
+
+  // Direct fast clone / branch
+  const handleQuickBranch = (card: Card) => {
+    const branched = cardDb.branchCard(card.id);
+    if (branched) {
+      refreshList();
+      showNotify(`Branched '${branched.name}' into custom cards! Original remains intact.`);
+    }
   };
 
   // Handle open creator for new card
   const handleCreateNew = (type: CardType = 'Operative') => {
     setIsCreatingNew(true);
+    setIsBranchingOriginal(false);
+    setSourceOriginalCard(null);
     const newCard: Card = {
       id: `custom_${type.toLowerCase()}_${Date.now()}`,
       name: `New ${type}`,
@@ -81,7 +113,8 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
       sub: type === 'Operative' ? 0 : undefined,
       production: (type === 'Location' || type === 'Affiliation') ? 2 : undefined,
       cap: (type === 'Location' || type === 'Affiliation') ? 2 : undefined,
-      abilityText: 'Card rules and special instructions here.'
+      abilityText: 'Card rules and special instructions here.',
+      isOriginal: false,
     };
     setEditingCard(newCard);
   };
@@ -94,14 +127,26 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
       return;
     }
 
-    cardDb.saveCard(editingCard);
+    const { savedCard, branched } = cardDb.saveCard(editingCard);
     refreshList();
     setEditingCard(null);
-    showNotify(`Card '${editingCard.name}' successfully saved!`);
+    setIsBranchingOriginal(false);
+    setSourceOriginalCard(null);
+
+    if (branched) {
+      showNotify(`Branched '${savedCard.name}' into a new custom card version! Original remains pristine.`);
+    } else {
+      showNotify(`Card '${savedCard.name}' successfully saved!`);
+    }
   };
 
   // Delete Card
   const handleDeleteCard = (id: string) => {
+    if (cardDb.isOriginalCard(id)) {
+      alert('Core original cards are protected and immutable. They cannot be deleted.');
+      setDeleteConfirmId(null);
+      return;
+    }
     const success = cardDb.deleteCard(id);
     if (success) {
       refreshList();
@@ -161,14 +206,19 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
-                Card Editor &amp; Creator
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-bold text-lg text-white tracking-tight">
+                  Card Editor &amp; Creator
+                </h2>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono border border-zinc-700">
                   {cards.length} Cards in Manifest
                 </span>
-              </h2>
-              <p className="text-xs text-zinc-400">
-                Design custom operatives, tune attack/defense values, configure resource capacities, or author custom rule mechanics.
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-medium border border-amber-500/30 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-400" /> Core Original Set Protected &amp; Immutable
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-1">
+                Original cards are protected and cannot be deleted or overwritten. Edits branch automatically into distinct custom versions that you can tune, test, and save.
               </p>
             </div>
           </div>
@@ -266,6 +316,7 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
           const isLocation = card.type === 'Location';
           const isAffiliation = card.type === 'Affiliation';
           const isSupport = card.type === 'Support';
+          const isOriginal = cardDb.isOriginalCard(card.id) || !!card.isOriginal;
 
           return (
             <div
@@ -278,16 +329,28 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
               }`}
             >
               <div>
-                {/* Header: Type and Cost */}
+                {/* Header: Type, Status and Cost */}
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded uppercase font-bold tracking-wider ${
-                    isOperative ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
-                    isLocation ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                    isAffiliation ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
-                    'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
-                  }`}>
-                    {card.type} {card.isNamed ? '★ Unique' : ''}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded uppercase font-bold tracking-wider ${
+                      isOperative ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
+                      isLocation ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                      isAffiliation ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
+                      'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                    }`}>
+                      {card.type} {card.isNamed ? '★ Unique' : ''}
+                    </span>
+
+                    {isOriginal ? (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-amber-300/90 border border-amber-500/20 flex items-center gap-0.5" title="Core original card: immutable and protected">
+                        <Lock className="w-2.5 h-2.5 text-amber-400" /> Original
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 flex items-center gap-0.5" title="Custom card branch">
+                        <GitBranch className="w-2.5 h-2.5 text-cyan-400" /> Custom
+                      </span>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-1.5 text-xs font-mono">
                     <span className="text-zinc-400">Qty:</span>
@@ -355,26 +418,56 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
 
               {/* Action Buttons */}
               <div className="pt-3 mt-3 border-t border-zinc-800/80 flex items-center justify-between">
-                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[120px]">
-                  ID: {card.id}
+                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[110px]" title={`ID: ${card.id}`}>
+                  {card.id}
                 </span>
 
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleEdit(card)}
-                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 border border-zinc-700 transition-all"
-                    title="Edit card stats and content"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </button>
+                  {isOriginal ? (
+                    <button
+                      onClick={() => handleEdit(card)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-semibold transition-all shadow-sm"
+                      title="Branch this core card to a custom editable version. The original stays intact."
+                    >
+                      <GitBranch className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Branch</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleEdit(card)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 border border-zinc-700 hover:border-cyan-500/30 text-xs font-medium transition-all"
+                      title="Edit this custom card"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
 
                   <button
-                    onClick={() => setDeleteConfirmId(card.id)}
-                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-700 transition-all"
-                    title="Delete card"
+                    onClick={() => handleQuickBranch(card)}
+                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700 transition-all"
+                    title="Duplicate into a new custom branch"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5" />
                   </button>
+
+                  {isOriginal ? (
+                    <button
+                      disabled
+                      className="p-1.5 rounded-lg bg-zinc-950/60 text-zinc-600 border border-zinc-800/80 cursor-not-allowed"
+                      title="Core original card is immutable and cannot be deleted"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(card.id)}
+                      className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-700 transition-all"
+                      title="Delete custom card"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -422,15 +515,30 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-                  {isCreatingNew ? <Plus className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
+                <div className={`p-1.5 rounded-lg ${
+                  isBranchingOriginal ? 'bg-cyan-500/20 text-cyan-400' :
+                  isCreatingNew ? 'bg-emerald-500/20 text-emerald-400' :
+                  'bg-amber-500/20 text-amber-400'
+                }`}>
+                  {isBranchingOriginal ? <GitBranch className="w-5 h-5" /> :
+                   isCreatingNew ? <Plus className="w-5 h-5" /> : 
+                   <Edit3 className="w-5 h-5" />}
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-white">
-                    {isCreatingNew ? 'Create New Card' : `Edit: ${editingCard.name}`}
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    {isBranchingOriginal ? `Branch from: ${sourceOriginalCard?.name || editingCard.name}` :
+                     isCreatingNew ? 'Create New Card' : 
+                     `Edit: ${editingCard.name}`}
+                    {isBranchingOriginal && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        New Version
+                      </span>
+                    )}
                   </h3>
                   <p className="text-[11px] text-zinc-400 font-mono">
-                    ID: {editingCard.id}
+                    {isBranchingOriginal 
+                      ? `Parent ID: ${sourceOriginalCard?.id} → Generates new custom ID upon save`
+                      : `ID: ${editingCard.id}`}
                   </p>
                 </div>
               </div>
@@ -442,6 +550,22 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Immutability & Branching Notice Banner */}
+            {isBranchingOriginal && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <span>Original Card is Immutable</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300">Copy-on-Write Branch</span>
+                  </p>
+                  <p className="text-zinc-300 text-[11px] leading-relaxed">
+                    The core original card <strong>{sourceOriginalCard?.name}</strong> is permanently preserved. Any customizations you make here will be saved as a brand-new playable custom card (<strong>{editingCard.name}</strong>) in your database and active decks.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Layout: Left preview, Right form */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -728,10 +852,30 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
               </button>
               <button
                 onClick={handleSaveCard}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md shadow-amber-500/20 active:scale-95"
+                className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 ${
+                  isBranchingOriginal 
+                    ? 'bg-amber-400 hover:bg-amber-300 text-black shadow-amber-400/20'
+                    : isCreatingNew
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/20'
+                }`}
               >
-                <Check className="w-4 h-4" />
-                <span>Save Changes</span>
+                {isBranchingOriginal ? (
+                  <>
+                    <GitBranch className="w-4 h-4" />
+                    <span>Save as Custom Card Branch</span>
+                  </>
+                ) : isCreatingNew ? (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span>Create Custom Card</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

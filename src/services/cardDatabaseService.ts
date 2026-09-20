@@ -6,6 +6,7 @@ import {
   SUPPORT_CARDS, 
   MASTER_MISSIONS 
 } from '../engine/cardManifest';
+import { EngineConfig, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 
 export interface DeckPreset {
   id: string;
@@ -21,15 +22,27 @@ const STORAGE_KEYS = {
   CARDS: 'spywar_custom_cards_v1',
   ACTIVE_DECK: 'spywar_active_deck_v1',
   PRESETS: 'spywar_deck_presets_v1',
+  GAME_CONFIG: 'spywar_game_config_v1',
 };
 
-// Base factory cards copy
+export const ORIGINAL_CARD_IDS = new Set<string>([
+  ...AFFILIATION_CARDS.map(c => c.id),
+  ...LOCATION_CARDS.map(c => c.id),
+  ...OPERATIVE_CARDS.map(c => c.id),
+  ...SUPPORT_CARDS.map(c => c.id),
+]);
+
+export function isOriginalCard(id: string): boolean {
+  return ORIGINAL_CARD_IDS.has(id);
+}
+
+// Base factory cards copy with isOriginal: true
 export function getFactoryCards(): Card[] {
   return [
-    ...AFFILIATION_CARDS.map(c => ({ ...c })),
-    ...LOCATION_CARDS.map(c => ({ ...c })),
-    ...OPERATIVE_CARDS.map(c => ({ ...c })),
-    ...SUPPORT_CARDS.map(c => ({ ...c })),
+    ...AFFILIATION_CARDS.map(c => ({ ...c, isOriginal: true })),
+    ...LOCATION_CARDS.map(c => ({ ...c, isOriginal: true })),
+    ...OPERATIVE_CARDS.map(c => ({ ...c, isOriginal: true })),
+    ...SUPPORT_CARDS.map(c => ({ ...c, isOriginal: true })),
   ];
 }
 
@@ -142,11 +155,13 @@ export class CardDatabaseService {
   private cards: Card[] = [];
   private activeDeck: DeckPreset;
   private presets: DeckPreset[] = [];
+  private gameConfig: EngineConfig = { ...DEFAULT_CONFIG };
 
   private constructor() {
     this.loadCards();
     this.loadPresets();
     this.loadActiveDeck();
+    this.loadGameConfig();
   }
 
   public static getInstance(): CardDatabaseService {
@@ -156,18 +171,65 @@ export class CardDatabaseService {
     return CardDatabaseService.instance;
   }
 
+  // Game Settings Management
+  private loadGameConfig() {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.GAME_CONFIG);
+      if (stored) {
+        this.gameConfig = { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      } else {
+        this.gameConfig = { ...DEFAULT_CONFIG };
+      }
+    } catch {
+      this.gameConfig = { ...DEFAULT_CONFIG };
+    }
+  }
+
+  public getGameConfig(): EngineConfig {
+    return { ...this.gameConfig };
+  }
+
+  public saveGameConfig(config: Partial<EngineConfig>): EngineConfig {
+    this.gameConfig = { ...this.gameConfig, ...config };
+    try {
+      localStorage.setItem(STORAGE_KEYS.GAME_CONFIG, JSON.stringify(this.gameConfig));
+    } catch (e) {
+      console.error('Failed to save game config to localStorage', e);
+    }
+    return { ...this.gameConfig };
+  }
+
+  public resetGameConfig(): EngineConfig {
+    this.gameConfig = { ...DEFAULT_CONFIG };
+    try {
+      localStorage.setItem(STORAGE_KEYS.GAME_CONFIG, JSON.stringify(this.gameConfig));
+    } catch (e) {
+      console.error('Failed to reset game config in localStorage', e);
+    }
+    return { ...this.gameConfig };
+  }
+
   // Cards Management
   private loadCards() {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.CARDS);
+      const factory = getFactoryCards();
       if (stored) {
-        this.cards = JSON.parse(stored);
+        const parsed: Card[] = JSON.parse(stored);
+        // Custom user cards are those not belonging to the immutable core set
+        const customCards = parsed.filter(c => !ORIGINAL_CARD_IDS.has(c.id));
+        // The original cards are ALWAYS loaded fresh from factory definitions to guarantee immutability
+        this.cards = [...factory, ...customCards];
       } else {
-        this.cards = getFactoryCards();
+        this.cards = factory;
       }
     } catch {
       this.cards = getFactoryCards();
     }
+  }
+
+  public isOriginalCard(id: string): boolean {
+    return ORIGINAL_CARD_IDS.has(id);
   }
 
   public saveCardsToStorage() {
@@ -190,26 +252,115 @@ export class CardDatabaseService {
     return this.cards.find(c => c.id === id);
   }
 
-  public saveCard(updated: Card) {
-    const idx = this.cards.findIndex(c => c.id === updated.id);
+  /**
+   * Saves a card. If the card is an immutable core card, it automatically
+   * branches to a new custom card version, leaving the original 100% intact.
+   */
+  public saveCard(cardToSave: Card): { savedCard: Card; branched: boolean } {
+    // If attempting to modify an original card, branch it to a custom card version
+    if (this.isOriginalCard(cardToSave.id)) {
+      const branchSuffix = Date.now().toString().slice(-6);
+      const cleanBase = cardToSave.id.replace(/^(op_|loc_|sup_|aff_)/, '');
+      const newId = `custom_${cleanBase}_${branchSuffix}`;
+      const defaultName = cardToSave.name.includes('(Custom)') 
+        ? cardToSave.name 
+        : `${cardToSave.name} (Custom)`;
+
+      const branchedCard: Card = {
+        ...cardToSave,
+        id: newId,
+        name: defaultName,
+        isOriginal: false,
+        parentCardId: cardToSave.id,
+        version: 1,
+      };
+
+      this.cards.push(branchedCard);
+      this.saveCardsToStorage();
+
+      // Ensure active deck incorporates the custom card if desired
+      if (branchedCard.type !== 'Affiliation' && !this.activeDeck.cardQuantities.hasOwnProperty(branchedCard.id)) {
+        this.activeDeck.cardQuantities[branchedCard.id] = branchedCard.qty || 2;
+        this.saveActiveDeckToStorage();
+      } else if (branchedCard.type === 'Affiliation' && !this.activeDeck.enabledAffiliations.includes(branchedCard.id)) {
+        this.activeDeck.enabledAffiliations.push(branchedCard.id);
+        this.saveActiveDeckToStorage();
+      }
+
+      return { savedCard: branchedCard, branched: true };
+    }
+
+    // It's a custom card: update existing or add new
+    const idx = this.cards.findIndex(c => c.id === cardToSave.id);
+    const finalizedCard: Card = {
+      ...cardToSave,
+      isOriginal: false,
+    };
+
     if (idx >= 0) {
-      this.cards[idx] = { ...updated };
+      this.cards[idx] = finalizedCard;
     } else {
-      this.cards.push({ ...updated });
+      this.cards.push(finalizedCard);
     }
     this.saveCardsToStorage();
     
     // Also ensure active deck has an entry for it if it's playable
-    if (updated.type !== 'Affiliation' && !this.activeDeck.cardQuantities.hasOwnProperty(updated.id)) {
-      this.activeDeck.cardQuantities[updated.id] = updated.qty || 2;
+    if (finalizedCard.type !== 'Affiliation' && !this.activeDeck.cardQuantities.hasOwnProperty(finalizedCard.id)) {
+      this.activeDeck.cardQuantities[finalizedCard.id] = finalizedCard.qty || 2;
       this.saveActiveDeckToStorage();
-    } else if (updated.type === 'Affiliation' && !this.activeDeck.enabledAffiliations.includes(updated.id)) {
-      this.activeDeck.enabledAffiliations.push(updated.id);
+    } else if (finalizedCard.type === 'Affiliation' && !this.activeDeck.enabledAffiliations.includes(finalizedCard.id)) {
+      this.activeDeck.enabledAffiliations.push(finalizedCard.id);
       this.saveActiveDeckToStorage();
     }
+
+    return { savedCard: finalizedCard, branched: false };
+  }
+
+  /**
+   * Explicitly branch any card to a new custom version.
+   */
+  public branchCard(sourceId: string, customOverrides?: Partial<Card>): Card | null {
+    const source = this.cards.find(c => c.id === sourceId);
+    if (!source) return null;
+
+    const branchSuffix = Date.now().toString().slice(-6);
+    const cleanBase = source.id.replace(/^(op_|loc_|sup_|aff_|custom_)/, '');
+    const newId = `custom_${cleanBase}_${branchSuffix}`;
+    const defaultName = customOverrides?.name || (
+      source.name.includes('(Custom)') 
+        ? `${source.name} Copy` 
+        : `${source.name} (Custom)`
+    );
+
+    const branched: Card = {
+      ...source,
+      ...customOverrides,
+      id: newId,
+      name: defaultName,
+      isOriginal: false,
+      parentCardId: source.id,
+      version: (source.version || 1) + 1,
+    };
+
+    this.cards.push(branched);
+    this.saveCardsToStorage();
+
+    if (branched.type !== 'Affiliation') {
+      this.activeDeck.cardQuantities[branched.id] = branched.qty || 2;
+      this.saveActiveDeckToStorage();
+    } else if (!this.activeDeck.enabledAffiliations.includes(branched.id)) {
+      this.activeDeck.enabledAffiliations.push(branched.id);
+      this.saveActiveDeckToStorage();
+    }
+
+    return branched;
   }
 
   public deleteCard(id: string): boolean {
+    if (this.isOriginalCard(id)) {
+      console.warn(`Card ${id} is an original immutable card and cannot be deleted.`);
+      return false;
+    }
     const idx = this.cards.findIndex(c => c.id === id);
     if (idx >= 0) {
       this.cards.splice(idx, 1);
@@ -225,24 +376,54 @@ export class CardDatabaseService {
   }
 
   public resetCardsToDefault() {
-    this.cards = getFactoryCards();
+    // Restores original factory cards while keeping player-created custom cards safe
+    const factory = getFactoryCards();
+    const customCards = this.cards.filter(c => !this.isOriginalCard(c.id));
+    this.cards = [...factory, ...customCards];
     this.saveCardsToStorage();
-    this.activeDeck = { ...BUILT_IN_PRESETS[0] };
+    this.activeDeck = { 
+      ...BUILT_IN_PRESETS[0],
+      cardQuantities: { ...BUILT_IN_PRESETS[0].cardQuantities },
+      enabledAffiliations: [...BUILT_IN_PRESETS[0].enabledAffiliations]
+    };
     this.saveActiveDeckToStorage();
   }
 
   // Presets & Active Deck Management
+  public isBuiltInPreset(id: string): boolean {
+    return BUILT_IN_PRESETS.some(p => p.id === id);
+  }
+
   private loadPresets() {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.PRESETS);
       if (stored) {
         const userPresets: DeckPreset[] = JSON.parse(stored);
-        this.presets = [...BUILT_IN_PRESETS, ...userPresets];
+        this.presets = [
+          ...BUILT_IN_PRESETS.map(p => ({
+            ...p,
+            cardQuantities: { ...p.cardQuantities },
+            enabledAffiliations: [...p.enabledAffiliations]
+          })),
+          ...userPresets
+        ];
       } else {
-        this.presets = [...BUILT_IN_PRESETS];
+        this.presets = [
+          ...BUILT_IN_PRESETS.map(p => ({
+            ...p,
+            cardQuantities: { ...p.cardQuantities },
+            enabledAffiliations: [...p.enabledAffiliations]
+          }))
+        ];
       }
     } catch {
-      this.presets = [...BUILT_IN_PRESETS];
+      this.presets = [
+        ...BUILT_IN_PRESETS.map(p => ({
+          ...p,
+          cardQuantities: { ...p.cardQuantities },
+          enabledAffiliations: [...p.enabledAffiliations]
+        }))
+      ];
     }
   }
 
@@ -252,10 +433,18 @@ export class CardDatabaseService {
       if (stored) {
         this.activeDeck = JSON.parse(stored);
       } else {
-        this.activeDeck = { ...BUILT_IN_PRESETS[0] };
+        this.activeDeck = { 
+          ...BUILT_IN_PRESETS[0],
+          cardQuantities: { ...BUILT_IN_PRESETS[0].cardQuantities },
+          enabledAffiliations: [...BUILT_IN_PRESETS[0].enabledAffiliations]
+        };
       }
     } catch {
-      this.activeDeck = { ...BUILT_IN_PRESETS[0] };
+      this.activeDeck = { 
+        ...BUILT_IN_PRESETS[0],
+        cardQuantities: { ...BUILT_IN_PRESETS[0].cardQuantities },
+        enabledAffiliations: [...BUILT_IN_PRESETS[0].enabledAffiliations]
+      };
     }
   }
 
@@ -268,15 +457,57 @@ export class CardDatabaseService {
   }
 
   public getActiveDeck(): DeckPreset {
-    return { ...this.activeDeck };
+    return { 
+      ...this.activeDeck,
+      cardQuantities: { ...this.activeDeck.cardQuantities },
+      enabledAffiliations: [...this.activeDeck.enabledAffiliations]
+    };
   }
 
   public setActiveDeck(deck: DeckPreset) {
-    this.activeDeck = { ...deck };
+    this.activeDeck = { 
+      ...deck,
+      cardQuantities: { ...deck.cardQuantities },
+      enabledAffiliations: [...deck.enabledAffiliations]
+    };
     this.saveActiveDeckToStorage();
   }
 
-  public updateActiveDeckQuantity(cardId: string, quantity: number) {
+  /**
+   * Branches the current active deck to a new custom player preset.
+   * Keeps original built-in presets pristine and untouched.
+   */
+  public branchActiveDeck(customName?: string): DeckPreset {
+    const parentName = this.activeDeck.name;
+    const branchName = customName || (
+      parentName.includes('(Custom)') 
+        ? `${parentName} Copy` 
+        : `${parentName} (Custom)`
+    );
+
+    const branched: DeckPreset = {
+      id: `preset_user_${Date.now()}`,
+      name: branchName,
+      description: `Custom branch of ${parentName}. Created on ${new Date().toLocaleDateString()}.`,
+      isBuiltIn: false,
+      cardQuantities: { ...this.activeDeck.cardQuantities },
+      enabledAffiliations: [...this.activeDeck.enabledAffiliations],
+    };
+
+    this.presets.push(branched);
+    this.saveUserPresetsToStorage();
+    this.setActiveDeck(branched);
+    return branched;
+  }
+
+  public updateActiveDeckQuantity(cardId: string, quantity: number): { deck: DeckPreset; branched: boolean } {
+    let branched = false;
+    // Copy-on-write: if modifying an original built-in preset, branch to a custom deck first!
+    if (this.activeDeck.isBuiltIn) {
+      this.branchActiveDeck();
+      branched = true;
+    }
+
     const safeQty = Math.max(0, Math.min(15, quantity));
     if (safeQty === 0) {
       delete this.activeDeck.cardQuantities[cardId];
@@ -284,9 +515,17 @@ export class CardDatabaseService {
       this.activeDeck.cardQuantities[cardId] = safeQty;
     }
     this.saveActiveDeckToStorage();
+    return { deck: this.activeDeck, branched };
   }
 
-  public toggleActiveDeckAffiliation(affId: string) {
+  public toggleActiveDeckAffiliation(affId: string): { deck: DeckPreset; branched: boolean } {
+    let branched = false;
+    // Copy-on-write: if modifying an original built-in preset, branch to a custom deck first!
+    if (this.activeDeck.isBuiltIn) {
+      this.branchActiveDeck();
+      branched = true;
+    }
+
     if (this.activeDeck.enabledAffiliations.includes(affId)) {
       if (this.activeDeck.enabledAffiliations.length > 2) {
         this.activeDeck.enabledAffiliations = this.activeDeck.enabledAffiliations.filter(id => id !== affId);
@@ -295,10 +534,19 @@ export class CardDatabaseService {
       this.activeDeck.enabledAffiliations.push(affId);
     }
     this.saveActiveDeckToStorage();
+    return { deck: this.activeDeck, branched };
   }
 
   public getAllPresets(): DeckPreset[] {
-    return [...this.presets];
+    const userOnly = this.presets.filter(p => !p.isBuiltIn);
+    return [
+      ...BUILT_IN_PRESETS.map(p => ({
+        ...p,
+        cardQuantities: { ...p.cardQuantities },
+        enabledAffiliations: [...p.enabledAffiliations]
+      })),
+      ...userOnly
+    ];
   }
 
   public saveNewPreset(name: string, description: string): DeckPreset {
@@ -317,10 +565,17 @@ export class CardDatabaseService {
   }
 
   public deletePreset(id: string): boolean {
+    if (this.isBuiltInPreset(id)) {
+      console.warn(`Cannot delete built-in deck preset ${id}. Original presets are immutable.`);
+      return false;
+    }
     const idx = this.presets.findIndex(p => p.id === id && !p.isBuiltIn);
     if (idx >= 0) {
       this.presets.splice(idx, 1);
       this.saveUserPresetsToStorage();
+      if (this.activeDeck.id === id) {
+        this.setActiveDeck(BUILT_IN_PRESETS[0]);
+      }
       return true;
     }
     return false;

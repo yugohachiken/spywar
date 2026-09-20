@@ -18,7 +18,10 @@ import {
   Shield, 
   Sliders,
   ChevronRight,
-  Info
+  Info,
+  Lock,
+  GitBranch,
+  Copy
 } from 'lucide-react';
 
 interface DeckBuilderProps {
@@ -76,14 +79,27 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
   const handleAdjustQty = (cardId: string, delta: number) => {
     const current = activeDeck.cardQuantities[cardId] || 0;
     const next = Math.max(0, current + delta);
-    cardDb.updateActiveDeckQuantity(cardId, next);
+    const { deck, branched } = cardDb.updateActiveDeckQuantity(cardId, next);
     refreshState();
+    if (branched) {
+      showToast(`Branched into custom deck '${deck.name}'! Official preset remains untouched.`);
+    }
   };
 
   // Toggle affiliation
   const handleToggleAffiliation = (affId: string) => {
-    cardDb.toggleActiveDeckAffiliation(affId);
+    const { deck, branched } = cardDb.toggleActiveDeckAffiliation(affId);
     refreshState();
+    if (branched) {
+      showToast(`Branched into custom deck '${deck.name}'! Official preset remains untouched.`);
+    }
+  };
+
+  // Branch deck manually
+  const handleBranchDeck = () => {
+    const branched = cardDb.branchActiveDeck();
+    refreshState();
+    showToast(`Branched active deck into custom deck '${branched.name}'!`);
   };
 
   // Save as new preset
@@ -102,6 +118,10 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
 
   // Delete preset
   const handleDeletePreset = (id: string) => {
+    if (cardDb.isBuiltInPreset(id)) {
+      alert('Official factory deck presets are immutable and cannot be deleted.');
+      return;
+    }
     if (window.confirm('Delete this custom preset?')) {
       cardDb.deletePreset(id);
       refreshState();
@@ -200,14 +220,27 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
-                Deck Builder &amp; Match Architect
-                <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-amber-400 font-mono border border-zinc-700">
-                  {deckStats.totalCards} Draw Cards
-                </span>
-              </h2>
-              <p className="text-xs text-zinc-400">
-                Design custom card inclusion, set exact copy counts, configure affiliation draft pools, and test live in match play.
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
+                  Deck Builder &amp; Match Architect
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-amber-400 font-mono border border-zinc-700">
+                    {deckStats.totalCards} Draw Cards
+                  </span>
+                </h2>
+                {activeDeck.isBuiltIn ? (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-medium border border-amber-500/30 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-400" /> Official Preset (Protected)
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 font-medium border border-cyan-500/30 flex items-center gap-1">
+                    <GitBranch className="w-3 h-3 text-cyan-400" /> Custom Player Deck
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-zinc-400 mt-1">
+                {activeDeck.isBuiltIn 
+                  ? 'Official presets are immutable. Modifying card quantities will automatically branch to a custom deck copy.'
+                  : 'Custom player deck. Changes are saved automatically; you can test in match play or branch new variants.'}
               </p>
             </div>
           </div>
@@ -224,19 +257,28 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
             >
               {presets.map(p => (
                 <option key={p.id} value={p.id} className="bg-zinc-900 text-white">
-                  {p.name} {p.isBuiltIn ? '(Default)' : '(Custom)'}
+                  {p.isBuiltIn ? '🔒 ' : '✨ '}{p.name} {p.isBuiltIn ? '(Official)' : '(Custom)'}
                 </option>
               ))}
             </select>
           </div>
 
           <button
+            onClick={handleBranchDeck}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-amber-500/20 text-zinc-200 hover:text-amber-300 text-xs font-medium border border-zinc-700 transition-all"
+            title="Branch active deck into an independent custom copy"
+          >
+            <GitBranch className="w-3.5 h-3.5 text-amber-400" />
+            <span>Branch Deck</span>
+          </button>
+
+          <button
             onClick={() => setShowSavePresetModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-all"
-            title="Save active deck configuration as a custom preset"
+            title="Save active deck configuration under a new name"
           >
-            <Save className="w-3.5 h-3.5 text-amber-400" />
-            <span>Save Preset</span>
+            <Save className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Save As...</span>
           </button>
 
           {!activeDeck.isBuiltIn && (
@@ -416,7 +458,7 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
                   }`}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold uppercase ${
                         isOperative ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                         isLocation ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
@@ -425,8 +467,17 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
                         {card.type}
                       </span>
                       <h4 className="font-semibold text-xs text-white truncate">{card.name}</h4>
+                      {cardDb.isOriginalCard(card.id) ? (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 flex items-center gap-0.5" title="Core original card (immutable)">
+                          <Lock className="w-2 h-2 text-amber-400/80" /> Original
+                        </span>
+                      ) : (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 flex items-center gap-0.5" title="Custom card version">
+                          <GitBranch className="w-2 h-2 text-cyan-400" /> Custom
+                        </span>
+                      )}
                       {card.cost > 0 && (
-                        <span className="text-[11px] font-mono text-amber-400 flex items-center gap-0.5">
+                        <span className="text-[11px] font-mono text-amber-400 flex items-center gap-0.5 ml-auto sm:ml-0">
                           <Coins className="w-3 h-3" /> {card.cost}
                         </span>
                       )}
@@ -534,6 +585,11 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
                             {card.type.slice(0, 3)}
                           </span>
                           <span className="font-medium text-xs text-white truncate">{card.name}</span>
+                          {cardDb.isOriginalCard(card.id) ? (
+                            <Lock className="w-2.5 h-2.5 text-amber-400/70 flex-shrink-0" title="Core original card" />
+                          ) : (
+                            <GitBranch className="w-2.5 h-2.5 text-cyan-400/80 flex-shrink-0" title="Custom card branch" />
+                          )}
                         </div>
                       </div>
 

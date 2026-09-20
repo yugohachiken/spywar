@@ -28,6 +28,9 @@ export interface Card {
   // Meta
   isToken?: boolean;
   isNamed?: boolean;
+  isOriginal?: boolean;
+  parentCardId?: string;
+  version?: number;
 }
 
 export interface Mission {

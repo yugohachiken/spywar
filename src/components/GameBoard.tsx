@@ -1662,12 +1662,67 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                   className="w-16 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-center font-mono text-amber-400 font-bold"
                 />
               </div>
+
+              {/* 10. Initiative Rule (Option 1: Highest Prod, Option 2: Lowest Prod, Option 3: Random) */}
+              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-zinc-950/60 border border-zinc-800/80">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-zinc-200">10. Initiative Rule</span>
+                    <p className="text-zinc-400 text-[11px]">Who plays first in Round 1</p>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">
+                    {(engine.config.initiativeRule || 'HIGHEST_PROD') === 'HIGHEST_PROD' ? 'Highest' : engine.config.initiativeRule === 'LOWEST_PROD' ? 'Lowest' : 'Random'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 pt-1">
+                  <button
+                    onClick={() => {
+                      engine.config.initiativeRule = 'HIGHEST_PROD';
+                      onRefresh();
+                    }}
+                    className={`px-2 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      (engine.config.initiativeRule || 'HIGHEST_PROD') === 'HIGHEST_PROD'
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    1. Highest (Default)
+                  </button>
+                  <button
+                    onClick={() => {
+                      engine.config.initiativeRule = 'LOWEST_PROD';
+                      onRefresh();
+                    }}
+                    className={`px-2 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      engine.config.initiativeRule === 'LOWEST_PROD'
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    2. Lowest Prod
+                  </button>
+                  <button
+                    onClick={() => {
+                      engine.config.initiativeRule = 'RANDOM';
+                      onRefresh();
+                    }}
+                    className={`px-2 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      engine.config.initiativeRule === 'RANDOM'
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    3. Random Coin
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
               <button
                 onClick={() => {
                   engine.config = { ...DEFAULT_CONFIG };
+                  CardDatabaseService.getInstance().resetGameConfig();
                   engine.players.forEach(p => {
                     if (p.affiliation) p.affiliation.cap = DEFAULT_CONFIG.affiliationMaxCap;
                   });
@@ -1680,6 +1735,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
               <button
                 onClick={() => {
+                  CardDatabaseService.getInstance().saveGameConfig(engine.config);
                   setShowConfigModal(false);
                   handleResetGame();
                 }}

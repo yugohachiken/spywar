@@ -1,5 +1,7 @@
 import { Card, Mission, Player, Action, LogEntry, TurnTelemetry, TurnPhase } from '../types/spywar';
 import { AFFILIATION_CARDS, LOCATION_CARDS, OPERATIVE_CARDS, SUPPORT_CARDS, MASTER_MISSIONS } from './cardManifest';
+import { AbilityParserService } from '../services/abilityParserService';
+import { AbilityPresetService } from '../services/abilityPresetService';
 
 export type InitiativeRule = 'HIGHEST_PROD' | 'LOWEST_PROD' | 'RANDOM';
 
@@ -923,6 +925,8 @@ export class SpywarEngine {
                 });
               }
             }
+          } else {
+            actions.push(...this.generateDynamicActionsForCard(player.affiliation, player, opponent));
           }
         } else {
           actions.push({
@@ -1081,6 +1085,8 @@ export class SpywarEngine {
               card: selectedCard,
               desc: `Exhaust ${selectedCard.name}: Draw 1 card`
             });
+          } else {
+            actions.push(...this.generateDynamicActionsForCard(selectedCard, player, opponent));
           }
         } else {
           actions.push({
@@ -1419,6 +1425,9 @@ export class SpywarEngine {
               });
             }
           }
+
+          // Dynamic / keyword parsed ability actions for operative
+          actions.push(...this.generateDynamicActionsForCard(selectedCard, player, opponent));
         } else {
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1514,6 +1523,8 @@ export class SpywarEngine {
             desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Subterfuge skill`
           });
         }
+      } else {
+        actions.push(...this.generateDynamicActionsForCard(player.affiliation, player, opponent));
       }
     }
 
@@ -1572,6 +1583,8 @@ export class SpywarEngine {
             card: loc,
             desc: `Exhaust Research Facility: Draw 1 card`
           });
+        } else {
+          actions.push(...this.generateDynamicActionsForCard(loc, player, opponent));
         }
       }
     }
@@ -1783,6 +1796,9 @@ export class SpywarEngine {
             desc: `Exhaust Team (${readyOps.length} Operatives) for Subterfuge against Hand [Team OFF: ${teamOff}]`
           });
         }
+
+        // Dynamic / keyword parsed ability actions for operative
+        actions.push(...this.generateDynamicActionsForCard(op, player, opponent));
       }
     }
 
@@ -1791,6 +1807,245 @@ export class SpywarEngine {
       type: 'PASS',
       desc: 'Pass / End Turn'
     });
+
+    return actions;
+  }
+
+  generateDynamicActionsForCard(card: Card, player: Player, opponent: Player): Action[] {
+    const actions: Action[] = [];
+    if (!card.abilityText && !card.specialAbility) return actions;
+
+    const preset = card.specialAbility ? AbilityPresetService.getInstance().getPresetById(card.specialAbility) : undefined;
+    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || preset?.description, preset?.config);
+    if (!parsed.isValid) return actions;
+
+    // TAP Trigger
+    if (parsed.trigger === 'tap') {
+      if (card.exhausted) return actions;
+
+      // Draw
+      const drawEff = parsed.effects.find(e => e.type === 'draw');
+      if (drawEff) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: drawEff, trigger: 'tap' },
+          desc: `Exhaust ${card.name}: Draw ${drawEff.amount || 1} card(s)`
+        });
+      }
+
+      // Siphon
+      const siphonEff = parsed.effects.find(e => e.type === 'siphon');
+      if (siphonEff) {
+        const oppSpendable = this.getTotalSpendableCoins(opponent);
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: siphonEff, trigger: 'tap' },
+          disabled: oppSpendable === 0,
+          disabledReason: oppSpendable === 0 ? `${opponent.name} has 0 coins` : undefined,
+          desc: `Exhaust ${card.name}: Siphon ${siphonEff.amount || 2} coin(s) from ${opponent.name}`
+        });
+      }
+
+      // Discard Hand
+      const discardHandEff = parsed.effects.find(e => e.type === 'discard_hand');
+      if (discardHandEff) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: discardHandEff, trigger: 'tap' },
+          disabled: opponent.hand.length === 0,
+          disabledReason: opponent.hand.length === 0 ? `${opponent.name}'s hand is empty` : undefined,
+          desc: `Exhaust ${card.name}: Force ${opponent.name} to discard ${discardHandEff.amount || 1} card(s) from hand`
+        });
+      }
+
+      // Discard Field
+      const discardFieldEff = parsed.effects.find(e => e.type === 'discard_field');
+      if (discardFieldEff) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: discardFieldEff, trigger: 'tap' },
+          disabled: opponent.battlefield.length === 0,
+          disabledReason: opponent.battlefield.length === 0 ? `${opponent.name} has no cards in play` : undefined,
+          desc: `Exhaust ${card.name}: Force ${opponent.name} to discard ${discardFieldEff.amount || 2} card(s) in play`
+        });
+      }
+
+      // Spawn Token
+      const spawnEff = parsed.effects.find(e => e.type === 'spawn_token');
+      if (spawnEff) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: spawnEff, trigger: 'tap' },
+          desc: `Exhaust ${card.name}: Spawn a ${spawnEff.tokenOff || 1}/${spawnEff.tokenDef || 1} ${spawnEff.tokenName || 'Operative'} token`
+        });
+      }
+
+      // Choice (e.g. +1 OFF or +1 DEF)
+      const choiceEff = parsed.effects.find(e => e.type === 'choice');
+      if (choiceEff && choiceEff.choices) {
+        if (parsed.targetType === 'friendly_op') {
+          const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+          if (friendlyOps.length === 0) {
+            actions.push({
+              type: 'DYNAMIC_ABILITY',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              disabled: true,
+              disabledReason: 'No friendly operatives in play to target',
+              desc: `${card.name} (Unavailable: No friendly operatives in play)`
+            });
+          } else {
+            for (const op of friendlyOps) {
+              choiceEff.choices.forEach((c, idx) => {
+                const label = choiceEff.choiceLabels?.[idx] || c.rawPhrase || `Option ${idx + 1}`;
+                actions.push({
+                  type: 'DYNAMIC_ABILITY',
+                  cardId: card.id,
+                  cardName: card.name,
+                  card,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: `choice_${idx}`,
+                  dynamicAbilityEffect: { effect: c, trigger: 'tap' },
+                  desc: `Exhaust ${card.name}: Give ${op.name} [${label}]`
+                });
+              });
+            }
+          }
+        } else {
+          choiceEff.choices.forEach((c, idx) => {
+            const label = choiceEff.choiceLabels?.[idx] || c.rawPhrase || `Option ${idx + 1}`;
+            actions.push({
+              type: 'DYNAMIC_ABILITY',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              subChoice: `choice_${idx}`,
+              dynamicAbilityEffect: { effect: c, trigger: 'tap' },
+              desc: `Exhaust ${card.name}: ${label}`
+            });
+          });
+        }
+      }
+
+      // Stat Buff
+      const buffEff = parsed.effects.find(e => e.type === 'buff_stat');
+      if (buffEff && !choiceEff) {
+        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        if (friendlyOps.length === 0) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            disabled: true,
+            disabledReason: 'No friendly operatives in play to buff',
+            desc: `${card.name} Buff (Unavailable: No friendly operatives in play)`
+          });
+        } else {
+          for (const op of friendlyOps) {
+            actions.push({
+              type: 'DYNAMIC_ABILITY',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              targetId: op.id,
+              targetName: op.name,
+              targetCard: op,
+              dynamicAbilityEffect: { effect: buffEff, trigger: 'tap' },
+              desc: `Exhaust ${card.name}: Give ${op.name} +${buffEff.amount || 1} ${buffEff.stat === 'off' ? 'Offense' : 'Defense'}`
+            });
+          }
+        }
+      }
+
+      // Skill Token
+      const tokenEff = parsed.effects.find(e => e.type === 'grant_token');
+      if (tokenEff) {
+        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        if (friendlyOps.length === 0) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            disabled: true,
+            disabledReason: 'No friendly operatives in play to grant token',
+            desc: `${card.name} (Unavailable: No friendly operatives in play)`
+          });
+        } else {
+          const skillsToOffer: ('ass' | 'raid' | 'sub')[] = tokenEff.skillOptions || (tokenEff.skill ? [tokenEff.skill] : ['ass', 'raid', 'sub']);
+          for (const op of friendlyOps) {
+            for (const sk of skillsToOffer) {
+              const hasSkill = (op[sk] || 0) > 0;
+              const canGive = this.config.allowDuplicateSkillTokens || !hasSkill;
+              actions.push({
+                type: 'DYNAMIC_ABILITY',
+                cardId: card.id,
+                cardName: card.name,
+                card,
+                targetId: op.id,
+                targetName: op.name,
+                targetCard: op,
+                subChoice: `token_${sk}`,
+                dynamicAbilityEffect: { effect: { ...tokenEff, skill: sk }, trigger: 'tap' },
+                disabled: !canGive,
+                disabledReason: !canGive ? `${op.name} already has ${sk.toUpperCase()} skill (Duplicate tokens disallowed)` : undefined,
+                desc: `Exhaust ${card.name}: Grant ${op.name} +1 ${sk.toUpperCase()} token${!canGive ? ' (Already has skill)' : ''}`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // SACRIFICE Trigger
+    if (parsed.trigger === 'sacrifice') {
+      const choiceEff = parsed.effects.find(e => e.type === 'choice');
+      if (choiceEff && choiceEff.choices) {
+        choiceEff.choices.forEach((c, idx) => {
+          const label = choiceEff.choiceLabels?.[idx] || c.rawPhrase || `Option ${idx + 1}`;
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            subChoice: `sac_choice_${idx}`,
+            dynamicAbilityEffect: { effect: c, trigger: 'sacrifice' },
+            desc: `Sacrifice ${card.name}: ${label}`
+          });
+        });
+      } else {
+        parsed.effects.forEach((eff, idx) => {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            subChoice: `sac_${idx}`,
+            dynamicAbilityEffect: { effect: eff, trigger: 'sacrifice' },
+            desc: `Sacrifice ${card.name}: Execute ability`
+          });
+        });
+      }
+    }
 
     return actions;
   }
@@ -1938,6 +2193,146 @@ export class SpywarEngine {
           return { success: true, message: `Granted +1 Subterfuge token to ${target.name}.` };
         }
       }
+    }
+
+    if (action.type === 'DYNAMIC_ABILITY') {
+      const card = action.card!;
+      const effData = action.dynamicAbilityEffect;
+      const effect = effData?.effect;
+      const trigger = effData?.trigger || 'tap';
+
+      // 1. Pay Cost / Trigger
+      if (trigger === 'tap') {
+        card.exhausted = true;
+      } else if (trigger === 'sacrifice') {
+        const bIdx = player.battlefield.findIndex(c => c.id === card.id);
+        if (bIdx !== -1) {
+          player.battlefield.splice(bIdx, 1);
+        }
+        player.discard_pile.push(card);
+        this.log(player.pid, 'SACRIFICE', `${card.name} was sacrificed.`);
+      }
+
+      if (!effect) {
+        return { success: true, message: `Activated ${card.name} ability.` };
+      }
+
+      // 2. Resolve specific atomic effect
+      if (effect.type === 'draw') {
+        const count = effect.amount || 1;
+        const drawnCards: string[] = [];
+        for (let i = 0; i < count; i++) {
+          if (this.drawDeck.length > 0 && player.hand.length < this.config.maxHandSize) {
+            const drawn = this.drawDeck.pop()!;
+            player.hand.push(drawn);
+            this.recordCardDrawn(drawn);
+            drawnCards.push(drawn.name);
+          }
+        }
+        if (drawnCards.length > 0) {
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} drew ${drawnCards.length} card(s): ${drawnCards.join(', ')}.`);
+          return { success: true, message: `Drew ${drawnCards.join(', ')}.` };
+        }
+        return { success: false, message: 'Draw deck empty or hand size full.' };
+      }
+
+      if (effect.type === 'siphon') {
+        const count = effect.amount || 2;
+        const stolen = Math.min(this.getTotalSpendableCoins(opponent), count);
+        if (stolen > 0) {
+          this.spendCoins(opponent, stolen);
+          player.current_turn_coins += stolen;
+          player.telemetry.raidedCoinsThisTurn += stolen;
+          this.placeMissionTokens(player, 'res_theft', stolen);
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} siphoned ${stolen} coin(s) from ${opponent.name}.`);
+          return { success: true, message: `Siphoned ${stolen} coin(s) from ${opponent.name}.` };
+        }
+        return { success: false, message: `${opponent.name} has no coins to siphon.` };
+      }
+
+      if (effect.type === 'discard_hand') {
+        const count = effect.amount || 1;
+        const droppedNames: string[] = [];
+        for (let i = 0; i < count && opponent.hand.length > 0; i++) {
+          const dropped = opponent.hand.pop()!;
+          opponent.discard_pile.push(dropped);
+          droppedNames.push(dropped.name);
+        }
+        if (droppedNames.length > 0) {
+          opponent.telemetry.discardedCardFromHandThisTurn = true;
+          if (opponent.hand.length === 0) {
+            this.placeMissionTokens(player, 'hand_wipe', 1);
+          }
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} forced ${opponent.name} to discard: ${droppedNames.join(', ')}.`);
+          return { success: true, message: `Forced ${opponent.name} to discard ${droppedNames.join(', ')}.` };
+        }
+        return { success: false, message: `${opponent.name}'s hand is empty.` };
+      }
+
+      if (effect.type === 'discard_field') {
+        const count = effect.amount || 2;
+        let discardedCount = 0;
+        for (let i = 0; i < count && opponent.battlefield.length > 0; i++) {
+          const dropped = opponent.battlefield.pop()!;
+          opponent.discard_pile.push(dropped);
+          discardedCount++;
+        }
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} discarded ${discardedCount} card(s) from ${opponent.name}'s field.`);
+        return { success: true, message: `Discarded ${discardedCount} card(s) from play.` };
+      }
+
+      if (effect.type === 'buff_stat') {
+        const target = action.targetCard || card;
+        const amt = effect.amount || 1;
+        if (effect.stat === 'off') {
+          target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Offense to ${target.name}.`);
+          return { success: true, message: `Granted +${amt} Offense to ${target.name}.` };
+        } else {
+          target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Defense to ${target.name}.`);
+          return { success: true, message: `Granted +${amt} Defense to ${target.name}.` };
+        }
+      }
+
+      if (effect.type === 'grant_token') {
+        const target = action.targetCard || card;
+        const sk = (effect.skill || 'ass') as 'ass' | 'raid' | 'sub';
+        const amt = effect.amount || 1;
+        target[sk] = (target[sk] || 0) + amt;
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt} ${sk.toUpperCase()} token on ${target.name}.`);
+        return { success: true, message: `Placed +${amt} ${sk.toUpperCase()} token on ${target.name}.` };
+      }
+
+      if (effect.type === 'spawn_token') {
+        const tokenExh = this.config.operativeSummonState === 'E';
+        const token: Card = {
+          id: `token_${Date.now()}`,
+          name: effect.tokenName || 'Operative Token',
+          type: 'Operative',
+          cost: 0,
+          off: effect.tokenOff || 1,
+          def: effect.tokenDef || 1,
+          ass: 0,
+          raid: 0,
+          sub: 0,
+          production: 0,
+          isToken: true,
+          exhausted: tokenExh
+        };
+        player.battlefield.push(token);
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} deployed ${token.name} (${token.off}/${token.def}) ${tokenExh ? '(E)' : '(R)'}.`);
+        return { success: true, message: `Deployed ${token.name}.` };
+      }
+
+      if (effect.type === 'produce_coins') {
+        const amt = effect.amount || 1;
+        player.current_turn_coins += amt;
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} generated +${amt} coin(s).`);
+        return { success: true, message: `Generated +${amt} coin(s).` };
+      }
+
+      return { success: true, message: `Ability resolved successfully.` };
     }
 
     if (action.type === 'PLAY_CARD') {
@@ -2569,7 +2964,10 @@ export class SpywarEngine {
       return { success: false, defBonus: 0, message: 'Card not found in hand.' };
     }
     const card = defender.hand[cardIdx];
-    if (card.type !== 'Support' && !card.canPlayOnDefense && card.specialAbility !== 'assemble_strike_defense') {
+    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText);
+    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense;
+
+    if (!isReaction) {
       return { success: false, defBonus: 0, message: 'Card cannot be played out of turn on defense.' };
     }
 
@@ -2593,7 +2991,12 @@ export class SpywarEngine {
         this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn! Assembled Defense Team (+2 DEF to intercept!).`);
       }
     } else {
-      defBonus = card.def || 2;
+      const interceptEff = parsed.effects.find(e => e.type === 'intercept_defense' || (e.type === 'buff_stat' && e.stat === 'def'));
+      if (interceptEff && interceptEff.amount) {
+        defBonus = interceptEff.amount;
+      } else {
+        defBonus = card.def || 2;
+      }
       this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn as defensive reaction (+${defBonus} DEF)!`);
     }
 

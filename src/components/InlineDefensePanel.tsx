@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Player } from '../types/spywar';
 import { Shield, AlertTriangle, Check, X, User, Bot, Loader2 } from 'lucide-react';
 import { SpywarEngine } from '../engine/SpywarEngine';
+import { AbilityParserService } from '../services/abilityParserService';
 
 interface InlineDefensePanelProps {
   engine: SpywarEngine;
@@ -41,7 +42,8 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
 
   // Eligible out-of-turn defense cards in hand
   const reactionCards = defender.hand.filter(
-    c => c.canPlayOnDefense || c.type === 'Support' || c.specialAbility === 'assemble_strike_defense'
+    c => c.canPlayOnDefense || c.type === 'Support' || c.specialAbility === 'assemble_strike_defense' ||
+    (c.abilityText && AbilityParserService.getInstance().parseAbility(c.abilityText).canPlayOnDefense)
   );
 
   const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike') => {

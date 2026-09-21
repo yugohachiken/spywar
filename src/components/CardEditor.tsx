@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Card, CardType } from '../types/spywar';
 import { CardDatabaseService } from '../services/cardDatabaseService';
+import { AbilityParserService } from '../services/abilityParserService';
+import { AbilityRuleEditor } from './AbilityRuleEditor';
 import { 
   Plus, 
   Trash2, 
@@ -21,7 +23,8 @@ import {
   Unlock,
   GitBranch,
   Copy,
-  ShieldAlert
+  ShieldAlert,
+  Cpu
 } from 'lucide-react';
 
 interface CardEditorProps {
@@ -44,6 +47,9 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showDeletedOriginalsModal, setShowDeletedOriginalsModal] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [showInlineAbilityEditor, setShowInlineAbilityEditor] = useState(false);
+  const [showStandaloneAbilityStudio, setShowStandaloneAbilityStudio] = useState(false);
+  const [studioText, setStudioText] = useState('Tap: Give target friendly operative +1 OFF or +1 DEF.');
 
   const showNotify = (msg: string) => {
     setNotification(msg);
@@ -277,6 +283,15 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
           >
             <Plus className="w-4 h-4" />
             <span>Create New Card</span>
+          </button>
+
+          <button
+            onClick={() => setShowStandaloneAbilityStudio(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-medium transition-all"
+            title="Open standardized Action Engine Ability Editor (Visual Builder, Syntax Interpreter, Sandbox)"
+          >
+            <Cpu className="w-4 h-4 text-purple-400" />
+            <span>Action Studio</span>
           </button>
 
           {onNavigateToDeckBuilder && (
@@ -995,17 +1010,62 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
                 )}
 
                 {/* Rules & Ability Text */}
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1">
-                    Card Ability / Rules Text
-                  </label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-zinc-300">
+                      Card Ability / Rules Text (Standardized Syntax Supported)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineAbilityEditor(!showInlineAbilityEditor)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition-all ${
+                        showInlineAbilityEditor 
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' 
+                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                      }`}
+                    >
+                      <Cpu className="w-3 h-3 text-purple-400" />
+                      <span>{showInlineAbilityEditor ? 'Hide Action Rule Editor' : 'Action Engine Rule Editor & Sandbox'}</span>
+                    </button>
+                  </div>
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={editingCard.abilityText || ''}
-                    onChange={e => setEditingCard({ ...editingCard, abilityText: e.target.value })}
-                    placeholder="Describe how the card functions during play..."
-                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 leading-relaxed"
+                    onChange={e => {
+                      const newText = e.target.value;
+                      const parsed = AbilityParserService.getInstance().parseAbility(newText);
+                      setEditingCard({
+                        ...editingCard,
+                        abilityText: newText,
+                        canPlayOnDefense: parsed.canPlayOnDefense || editingCard.canPlayOnDefense
+                      });
+                    }}
+                    placeholder="Describe how the card functions during play... e.g. Tap: Give target friendly operative +1 OFF or +1 DEF."
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 leading-relaxed font-mono"
                   />
+
+                  {showInlineAbilityEditor && (
+                    <div className="mt-2 p-3 bg-zinc-950/90 rounded-xl border border-purple-500/40 shadow-inner">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-800">
+                        <span className="text-[11px] font-semibold text-purple-300 flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5" />
+                          <span>Standardized Rule Interpreter &amp; Sandbox Simulator</span>
+                        </span>
+                        <span className="text-[10px] text-zinc-500">Live Engine Integration</span>
+                      </div>
+                      <AbilityRuleEditor
+                        initialText={editingCard.abilityText || ''}
+                        cardType={editingCard.type}
+                        onUpdateText={(newText, parsed) => {
+                          setEditingCard({
+                            ...editingCard,
+                            abilityText: newText,
+                            canPlayOnDefense: parsed.canPlayOnDefense || editingCard.canPlayOnDefense
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Special Ability Engine Preset */}
@@ -1187,6 +1247,74 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
               >
                 Done
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Standalone Action / Ability Studio Modal */}
+      {showStandaloneAbilityStudio && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
+                  <Cpu className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-white">Engine Action &amp; Special Ability Studio</h2>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                      All 3 Modes Integrated
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Standardized keyword interpreter, visual drag-and-drop rule builder, and interactive mock game sandbox.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowStandaloneAbilityStudio(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1">
+              <AbilityRuleEditor
+                initialText={studioText}
+                cardType="Operative"
+                onUpdateText={(newText) => setStudioText(newText)}
+              />
+            </div>
+
+            <div className="p-4 border-t border-zinc-800 bg-zinc-950 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-zinc-400 text-center sm:text-left">
+                Design custom card abilities and attach them directly to new cards in the database.
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  onClick={() => {
+                    setShowStandaloneAbilityStudio(false);
+                    handleCreateNew('Operative');
+                    setTimeout(() => {
+                      setEditingCard(prev => prev ? { ...prev, abilityText: studioText } : null);
+                      setShowInlineAbilityEditor(true);
+                    }, 60);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-purple-500/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create Card With This Ability</span>
+                </button>
+                <button
+                  onClick={() => setShowStandaloneAbilityStudio(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-all"
+                >
+                  Close Studio
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -87,7 +87,8 @@ export type ActionType =
   | 'INTERCEPT_THWART'
   | 'DISCARD_CARD'
   | 'ADVANCE_PHASE'
-  | 'PASS';
+  | 'PASS'
+  | 'DYNAMIC_ABILITY';
 
 export interface Action {
   type: ActionType;
@@ -101,7 +102,8 @@ export interface Action {
   targetName?: string;
   targetCard?: Card;
   opType?: 'ass' | 'raid' | 'sub' | 'hold' | 'boksoon_ass' | 'mata_hari_steal' | 'ghost_siphon';
-  subChoice?: 'discard_hand' | 'discard_in_play' | 'buff_off' | 'buff_def' | 'buff_ass' | 'buff_raid' | 'buff_sub' | 'assemble_strike' | 'assemble_defense';
+  subChoice?: 'discard_hand' | 'discard_in_play' | 'buff_off' | 'buff_def' | 'buff_ass' | 'buff_raid' | 'buff_sub' | 'assemble_strike' | 'assemble_defense' | string;
+  dynamicAbilityEffect?: any;
   desc: string;
   disabled?: boolean;
   disabledReason?: string;

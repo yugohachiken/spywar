@@ -45,7 +45,7 @@ export class ISMCTSAgent {
   }
 
   getBestAction(engine: SpywarEngine, activePlayer: Player, opponent: Player): Action {
-    const legalActions = engine.getLegalActions(activePlayer, opponent);
+    const legalActions = engine.getLegalActions(activePlayer, opponent).filter(a => !a.disabled);
     if (legalActions.length <= 1) {
       return legalActions[0] || { type: 'PASS', desc: 'Pass turn' };
     }

@@ -20,6 +20,7 @@ export interface DeckPreset {
 
 const STORAGE_KEYS = {
   CARDS: 'spywar_custom_cards_v1',
+  DELETED_ORIGINALS: 'spywar_deleted_original_ids_v1',
   ACTIVE_DECK: 'spywar_active_deck_v1',
   PRESETS: 'spywar_deck_presets_v1',
   GAME_CONFIG: 'spywar_game_config_v1',
@@ -30,6 +31,7 @@ export const ORIGINAL_CARD_IDS = new Set<string>([
   ...LOCATION_CARDS.map(c => c.id),
   ...OPERATIVE_CARDS.map(c => c.id),
   ...SUPPORT_CARDS.map(c => c.id),
+  ...MASTER_MISSIONS.map(m => m.id),
 ]);
 
 export function isOriginalCard(id: string): boolean {
@@ -43,6 +45,17 @@ export function getFactoryCards(): Card[] {
     ...LOCATION_CARDS.map(c => ({ ...c, isOriginal: true })),
     ...OPERATIVE_CARDS.map(c => ({ ...c, isOriginal: true })),
     ...SUPPORT_CARDS.map(c => ({ ...c, isOriginal: true })),
+    ...MASTER_MISSIONS.map(m => ({
+      id: m.id,
+      name: m.name,
+      type: 'Mission' as const,
+      cost: 0,
+      points: m.points,
+      req: m.req,
+      missionType: m.type,
+      abilityText: m.description,
+      isOriginal: true,
+    })),
   ];
 }
 
@@ -153,6 +166,7 @@ export const BUILT_IN_PRESETS: DeckPreset[] = [
 export class CardDatabaseService {
   private static instance: CardDatabaseService;
   private cards: Card[] = [];
+  private deletedOriginalIds: Set<string> = new Set();
   private activeDeck: DeckPreset;
   private presets: DeckPreset[] = [];
   private gameConfig: EngineConfig = { ...DEFAULT_CONFIG };
@@ -212,19 +226,40 @@ export class CardDatabaseService {
   // Cards Management
   private loadCards() {
     try {
+      const storedDeleted = localStorage.getItem(STORAGE_KEYS.DELETED_ORIGINALS);
+      if (storedDeleted) {
+        this.deletedOriginalIds = new Set(JSON.parse(storedDeleted));
+      } else {
+        this.deletedOriginalIds = new Set();
+      }
+
       const stored = localStorage.getItem(STORAGE_KEYS.CARDS);
-      const factory = getFactoryCards();
       if (stored) {
         const parsed: Card[] = JSON.parse(stored);
-        // Custom user cards are those not belonging to the immutable core set
-        const customCards = parsed.filter(c => !ORIGINAL_CARD_IDS.has(c.id));
-        // The original cards are ALWAYS loaded fresh from factory definitions to guarantee immutability
-        this.cards = [...factory, ...customCards];
+        this.cards = parsed;
+        // Migration: Ensure factory mission cards are included if not deleted
+        const factory = getFactoryCards();
+        const currentIds = new Set(this.cards.map(c => c.id));
+        for (const f of factory) {
+          if (f.type === 'Mission' && !currentIds.has(f.id) && !this.deletedOriginalIds.has(f.id)) {
+            this.cards.push(f);
+          }
+        }
       } else {
-        this.cards = factory;
+        const factory = getFactoryCards();
+        this.cards = factory.filter(c => !this.deletedOriginalIds.has(c.id));
       }
     } catch {
       this.cards = getFactoryCards();
+      this.deletedOriginalIds = new Set();
+    }
+  }
+
+  private saveDeletedOriginalsToStorage() {
+    try {
+      localStorage.setItem(STORAGE_KEYS.DELETED_ORIGINALS, JSON.stringify([...this.deletedOriginalIds]));
+    } catch (e) {
+      console.error('Failed to save deleted original IDs to localStorage', e);
     }
   }
 
@@ -253,12 +288,13 @@ export class CardDatabaseService {
   }
 
   /**
-   * Saves a card. If the card is an immutable core card, it automatically
-   * branches to a new custom card version, leaving the original 100% intact.
+   * Saves a card. If overwriteOriginal is true or if the card is already custom/modified,
+   * updates the card directly in place.
+   * If overwriteOriginal is false and the card is an unmodified original, branches to a new custom version.
    */
-  public saveCard(cardToSave: Card): { savedCard: Card; branched: boolean } {
-    // If attempting to modify an original card, branch it to a custom card version
-    if (this.isOriginalCard(cardToSave.id)) {
+  public saveCard(cardToSave: Card, options?: { overwriteOriginal?: boolean }): { savedCard: Card; branched: boolean } {
+    const isOriginal = this.isOriginalCard(cardToSave.id);
+    if (isOriginal && !options?.overwriteOriginal) {
       const branchSuffix = Date.now().toString().slice(-6);
       const cleanBase = cardToSave.id.replace(/^(op_|loc_|sup_|aff_)/, '');
       const newId = `custom_${cleanBase}_${branchSuffix}`;
@@ -271,6 +307,7 @@ export class CardDatabaseService {
         id: newId,
         name: defaultName,
         isOriginal: false,
+        isModifiedOriginal: false,
         parentCardId: cardToSave.id,
         version: 1,
       };
@@ -290,11 +327,12 @@ export class CardDatabaseService {
       return { savedCard: branchedCard, branched: true };
     }
 
-    // It's a custom card: update existing or add new
+    // Direct update in place (custom card or user chosen overwrite of original)
     const idx = this.cards.findIndex(c => c.id === cardToSave.id);
     const finalizedCard: Card = {
       ...cardToSave,
-      isOriginal: false,
+      isOriginal: isOriginal ? false : (cardToSave.isOriginal || false),
+      isModifiedOriginal: isOriginal ? true : (cardToSave.isModifiedOriginal || false),
     };
 
     if (idx >= 0) {
@@ -338,6 +376,7 @@ export class CardDatabaseService {
       id: newId,
       name: defaultName,
       isOriginal: false,
+      isModifiedOriginal: false,
       parentCardId: source.id,
       version: (source.version || 1) + 1,
     };
@@ -357,12 +396,13 @@ export class CardDatabaseService {
   }
 
   public deleteCard(id: string): boolean {
-    if (this.isOriginalCard(id)) {
-      console.warn(`Card ${id} is an original immutable card and cannot be deleted.`);
-      return false;
-    }
     const idx = this.cards.findIndex(c => c.id === id);
     if (idx >= 0) {
+      const targetCard = this.cards[idx];
+      if (this.isOriginalCard(targetCard.id)) {
+        this.deletedOriginalIds.add(targetCard.id);
+        this.saveDeletedOriginalsToStorage();
+      }
       this.cards.splice(idx, 1);
       this.saveCardsToStorage();
 
@@ -375,11 +415,58 @@ export class CardDatabaseService {
     return false;
   }
 
+  /**
+   * Returns list of original factory cards that have been deleted by the user.
+   */
+  public getDeletedOriginalCards(): Card[] {
+    const currentCardIds = new Set(this.cards.map(c => c.id));
+    const factory = getFactoryCards();
+    return factory.filter(c => !currentCardIds.has(c.id));
+  }
+
+  /**
+   * Restores a single original card that was previously deleted.
+   */
+  public restoreOriginalCard(cardId: string): Card | null {
+    const factoryCard = getFactoryCards().find(c => c.id === cardId);
+    if (!factoryCard) return null;
+
+    if (!this.cards.some(c => c.id === cardId)) {
+      this.cards.push({ ...factoryCard });
+      this.deletedOriginalIds.delete(cardId);
+      this.saveDeletedOriginalsToStorage();
+      this.saveCardsToStorage();
+    }
+    return factoryCard;
+  }
+
+  /**
+   * Restores all deleted original cards to the card pool.
+   */
+  public restoreAllOriginalCards(): Card[] {
+    const currentCardIds = new Set(this.cards.map(c => c.id));
+    const factory = getFactoryCards();
+    const restored: Card[] = [];
+
+    for (const fCard of factory) {
+      if (!currentCardIds.has(fCard.id)) {
+        this.cards.push({ ...fCard });
+        restored.push(fCard);
+      }
+    }
+    this.deletedOriginalIds.clear();
+    this.saveDeletedOriginalsToStorage();
+    this.saveCardsToStorage();
+    return restored;
+  }
+
   public resetCardsToDefault() {
     // Restores original factory cards while keeping player-created custom cards safe
     const factory = getFactoryCards();
     const customCards = this.cards.filter(c => !this.isOriginalCard(c.id));
     this.cards = [...factory, ...customCards];
+    this.deletedOriginalIds.clear();
+    this.saveDeletedOriginalsToStorage();
     this.saveCardsToStorage();
     this.activeDeck = { 
       ...BUILT_IN_PRESETS[0],
@@ -608,6 +695,13 @@ export class CardDatabaseService {
         return { success: false, message: 'Invalid JSON format: missing cards array.' };
       }
       this.cards = data.cards;
+
+      // Compute which original core cards are missing from the imported JSON
+      const importedIds = new Set(data.cards.map((c: Card) => c.id));
+      this.deletedOriginalIds = new Set(
+        [...ORIGINAL_CARD_IDS].filter(id => !importedIds.has(id))
+      );
+      this.saveDeletedOriginalsToStorage();
       this.saveCardsToStorage();
 
       if (data.activeDeck) {
@@ -618,7 +712,10 @@ export class CardDatabaseService {
         this.presets = [...BUILT_IN_PRESETS, ...data.presets];
         this.saveUserPresetsToStorage();
       }
-      return { success: true, message: `Successfully imported ${this.cards.length} cards!` };
+      return { 
+        success: true, 
+        message: `Successfully imported ${this.cards.length} cards! Custom deck & card list are now active.` 
+      };
     } catch (err: any) {
       return { success: false, message: `Import error: ${err?.message || 'Invalid JSON'}` };
     }
@@ -692,10 +789,24 @@ export class CardDatabaseService {
     // The rest form the draw deck
     drawDeck.push(...locCards, ...opCards, ...supCards);
 
+    // 3. Missions (supports custom missions created in Card Editor)
+    const missionCards = allCards.filter(c => c.type === 'Mission');
+    const missions: Mission[] = (missionCards.length > 0 ? missionCards : MASTER_MISSIONS).map(m => ({
+      id: m.id,
+      name: m.name,
+      type: (m as any).missionType || m.type || 'kills',
+      req: m.req || 1,
+      points: m.points || 1,
+      description: m.abilityText || m.description || '',
+      tokens: { P1: 0, P2: 0 },
+      isOriginal: m.isOriginal,
+      isModifiedOriginal: m.isModifiedOriginal
+    }));
+
     return {
       affiliationDeck,
       drawDeck,
-      missions: [...MASTER_MISSIONS].map(m => ({ ...m, tokens: { P1: 0, P2: 0 } })),
+      missions,
     };
   }
 }

@@ -467,8 +467,12 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
                         {card.type}
                       </span>
                       <h4 className="font-semibold text-xs text-white truncate">{card.name}</h4>
-                      {cardDb.isOriginalCard(card.id) ? (
-                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 flex items-center gap-0.5" title="Core original card (immutable)">
+                      {card.isModifiedOriginal ? (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 flex items-center gap-0.5" title="Modified original card">
+                          <Check className="w-2 h-2 text-emerald-400" /> Modified
+                        </span>
+                      ) : cardDb.isOriginalCard(card.id) ? (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 flex items-center gap-0.5" title="Original core card">
                           <Lock className="w-2 h-2 text-amber-400/80" /> Original
                         </span>
                       ) : (
@@ -585,7 +589,9 @@ export const DeckBuilder: React.FC<DeckBuilderProps> = ({ onPlayWithDeck, onNavi
                             {card.type.slice(0, 3)}
                           </span>
                           <span className="font-medium text-xs text-white truncate">{card.name}</span>
-                          {cardDb.isOriginalCard(card.id) ? (
+                          {card.isModifiedOriginal ? (
+                            <Check className="w-2.5 h-2.5 text-emerald-400/90 flex-shrink-0" title="Modified original card" />
+                          ) : cardDb.isOriginalCard(card.id) ? (
                             <Lock className="w-2.5 h-2.5 text-amber-400/70 flex-shrink-0" title="Core original card" />
                           ) : (
                             <GitBranch className="w-2.5 h-2.5 text-cyan-400/80 flex-shrink-0" title="Custom card branch" />

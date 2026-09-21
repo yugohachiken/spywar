@@ -515,13 +515,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     onRefresh();
   };
 
-  const handleConfirmDefense = (chosenDefenderIds: string[]) => {
+  const handleConfirmDefense = (chosenDefenderIds: string[], bonusDefense: number = 0) => {
     if (!pendingDefense) return;
     engine.executeAction(
       pendingDefense.attacker,
       pendingDefense.defender,
       pendingDefense.action,
-      chosenDefenderIds
+      chosenDefenderIds,
+      bonusDefense
     );
 
     if (isOnline && multiplayerRoom) {
@@ -1390,13 +1391,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             {legalActions.map((action, idx) => (
               <button
                 key={idx}
-                onClick={() => handleAction(action)}
-                className="p-2 rounded-lg text-left text-xs bg-zinc-950 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 transition-all group flex items-start gap-2"
+                disabled={action.disabled}
+                onClick={() => !action.disabled && handleAction(action)}
+                title={action.disabledReason || action.desc}
+                className={`p-2 rounded-lg text-left text-xs transition-all group flex items-start gap-2 ${
+                  action.disabled
+                    ? 'bg-zinc-950/40 border border-zinc-800/40 opacity-50 cursor-not-allowed'
+                    : 'bg-zinc-950 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700'
+                }`}
               >
-                <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-zinc-800 text-zinc-400 group-hover:bg-amber-500/20 group-hover:text-amber-300">
+                <span className={`text-[10px] font-mono px-1 py-0.5 rounded ${
+                  action.disabled 
+                    ? 'bg-zinc-900 text-zinc-600' 
+                    : 'bg-zinc-800 text-zinc-400 group-hover:bg-amber-500/20 group-hover:text-amber-300'
+                }`}>
                   {idx + 1}
                 </span>
-                <span className="text-zinc-300 group-hover:text-white leading-snug line-clamp-2">
+                <span className={`${action.disabled ? 'text-zinc-500 italic' : 'text-zinc-300 group-hover:text-white'} leading-snug line-clamp-2`}>
                   {action.desc}
                 </span>
               </button>

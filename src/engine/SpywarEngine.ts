@@ -14,6 +14,7 @@ export interface EngineConfig {
   startingMissionCards: number;
   maxMissionsInPlay: number;
   initiativeRule: InitiativeRule;
+  allowDuplicateSkillTokens: boolean;
 }
 
 export const DEFAULT_CONFIG: EngineConfig = {
@@ -26,7 +27,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
   locationSummonState: 'R',
   startingMissionCards: 1,
   maxMissionsInPlay: 0,
-  initiativeRule: 'HIGHEST_PROD'
+  initiativeRule: 'HIGHEST_PROD',
+  allowDuplicateSkillTokens: false
 };
 
 export interface MatchTelemetry {
@@ -765,6 +767,23 @@ export class SpywarEngine {
                 desc: `Deploy Global Dominion Plan (Cost: 8) -> WIN GAME!`
               });
             }
+          } else if (selectedCard.specialAbility === 'assemble_strike_defense') {
+            actions.push({
+              type: 'PLAY_CARD',
+              cardId: selectedCard.id,
+              cardName: selectedCard.name,
+              card: selectedCard,
+              subChoice: 'assemble_strike',
+              desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token)`
+            });
+            actions.push({
+              type: 'PLAY_CARD',
+              cardId: selectedCard.id,
+              cardName: selectedCard.name,
+              card: selectedCard,
+              subChoice: 'assemble_defense',
+              desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token)`
+            });
           } else if (selectedCard.type === 'Support') {
             if (this.isSupportPlayable(selectedCard.name, player, opponent)) {
               actions.push({
@@ -784,6 +803,29 @@ export class SpywarEngine {
               desc: `Deploy ${selectedCard.name} (Cost: ${cost})`
             });
           }
+        } else {
+          actions.push({
+            type: 'PLAY_CARD',
+            cardId: selectedCard.id,
+            cardName: selectedCard.name,
+            card: selectedCard,
+            disabled: true,
+            disabledReason: `Requires ${cost} coins (Spendable: ${spendable})`,
+            desc: `Deploy ${selectedCard.name} (Cost: ${cost}) [Need ${cost - spendable} more coin(s)]`
+          });
+        }
+
+        // Clarify operative / location special abilities activate once deployed to battlefield
+        if (selectedCard.specialAbility && (selectedCard.type === 'Operative' || selectedCard.type === 'Location')) {
+          actions.push({
+            type: 'TAP_ABILITY',
+            cardId: selectedCard.id,
+            cardName: selectedCard.name,
+            card: selectedCard,
+            disabled: true,
+            disabledReason: 'Operative and Location special abilities activate once deployed on the battlefield',
+            desc: `Special Ability [${selectedCard.name}]: Deploy to battlefield first`
+          });
         }
 
         actions.push({
@@ -822,7 +864,76 @@ export class SpywarEngine {
               card: player.affiliation,
               desc: 'Exhaust IMF to draw 1 card'
             });
+          } else if (player.affiliation.specialAbility === 'buff_skill' || player.affiliation.specialAbility === 'grant_skill_token') {
+            const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+            if (friendlyOps.length === 0) {
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: player.affiliation.id,
+                cardName: player.affiliation.name,
+                card: player.affiliation,
+                disabled: true,
+                disabledReason: 'No friendly operatives in play to grant skill buff',
+                desc: `${player.affiliation.name} Ability (Unavailable: No friendly operatives in play)`
+              });
+            } else {
+              for (const op of friendlyOps) {
+                const canAss = this.config.allowDuplicateSkillTokens || (op.ass || 0) === 0;
+                const canRaid = this.config.allowDuplicateSkillTokens || (op.raid || 0) === 0;
+                const canSub = this.config.allowDuplicateSkillTokens || (op.sub || 0) === 0;
+
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: player.affiliation.id,
+                  cardName: player.affiliation.name,
+                  card: player.affiliation,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_ass',
+                  disabled: !canAss,
+                  disabledReason: !canAss ? `${op.name} already has Assassin skill (Duplicate tokens disallowed in Settings)` : undefined,
+                  desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Assassin skill${!canAss ? ' (Already has ASS)' : ''}`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: player.affiliation.id,
+                  cardName: player.affiliation.name,
+                  card: player.affiliation,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_raid',
+                  disabled: !canRaid,
+                  disabledReason: !canRaid ? `${op.name} already has Raid skill (Duplicate tokens disallowed in Settings)` : undefined,
+                  desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Raid skill${!canRaid ? ' (Already has RAID)' : ''}`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: player.affiliation.id,
+                  cardName: player.affiliation.name,
+                  card: player.affiliation,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_sub',
+                  disabled: !canSub,
+                  disabledReason: !canSub ? `${op.name} already has Subterfuge skill (Duplicate tokens disallowed in Settings)` : undefined,
+                  desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Subterfuge skill${!canSub ? ' (Already has SUB)' : ''}`
+                });
+              }
+            }
           }
+        } else {
+          actions.push({
+            type: 'TAP_PROD',
+            cardId: player.affiliation.id,
+            cardName: player.affiliation.name,
+            card: player.affiliation,
+            disabled: true,
+            disabledReason: 'Card is exhausted (E) - refreshes to Ready at start of your next turn',
+            desc: `${player.affiliation.name} is Exhausted (E) - Refreshes next turn`
+          });
         }
         actions.push({
           type: 'PASS',
@@ -845,40 +956,121 @@ export class SpywarEngine {
           });
 
           // (2) Exhaust to activate special ability
-          if (selectedCard.specialAbility === 'armory_buff') {
+          if (selectedCard.specialAbility === 'armory_buff' || selectedCard.specialAbility === 'buff_off_or_def') {
             const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-            for (const op of friendlyOps) {
+            if (friendlyOps.length === 0) {
               actions.push({
                 type: 'TAP_ABILITY',
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                targetId: op.id,
-                targetName: op.name,
-                targetCard: op,
-                subChoice: 'buff_off',
-                desc: `Exhaust Armory: Give ${op.name} +1 Offense`
+                disabled: true,
+                disabledReason: 'No friendly operatives in play to buff',
+                desc: `${selectedCard.name} Buff (Unavailable: No friendly operatives in play)`
               });
+            } else {
+              for (const op of friendlyOps) {
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_off',
+                  desc: `Exhaust ${selectedCard.name}: Give ${op.name} +1 Offense`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_def',
+                  desc: `Exhaust ${selectedCard.name}: Give ${op.name} +1 Defense`
+                });
+              }
+            }
+          } else if (selectedCard.specialAbility === 'buff_skill' || selectedCard.specialAbility === 'grant_skill_token') {
+            const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+            if (friendlyOps.length === 0) {
               actions.push({
                 type: 'TAP_ABILITY',
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                targetId: op.id,
-                targetName: op.name,
-                targetCard: op,
-                subChoice: 'buff_def',
-                desc: `Exhaust Armory: Give ${op.name} +1 Defense`
+                disabled: true,
+                disabledReason: 'No friendly operatives in play to grant skill token',
+                desc: `${selectedCard.name} (Unavailable: No friendly operatives in play)`
               });
+            } else {
+              for (const op of friendlyOps) {
+                const canAss = this.config.allowDuplicateSkillTokens || (op.ass || 0) === 0;
+                const canRaid = this.config.allowDuplicateSkillTokens || (op.raid || 0) === 0;
+                const canSub = this.config.allowDuplicateSkillTokens || (op.sub || 0) === 0;
+
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_ass',
+                  disabled: !canAss,
+                  disabledReason: !canAss ? `${op.name} already has Assassin skill (Duplicate tokens disallowed)` : undefined,
+                  desc: `Exhaust ${selectedCard.name}: Place +1 Assassin token on ${op.name}${!canAss ? ' (Already has ASS)' : ''}`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_raid',
+                  disabled: !canRaid,
+                  disabledReason: !canRaid ? `${op.name} already has Raid skill (Duplicate tokens disallowed)` : undefined,
+                  desc: `Exhaust ${selectedCard.name}: Place +1 Raid token on ${op.name}${!canRaid ? ' (Already has RAID)' : ''}`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_sub',
+                  disabled: !canSub,
+                  disabledReason: !canSub ? `${op.name} already has Subterfuge skill (Duplicate tokens disallowed)` : undefined,
+                  desc: `Exhaust ${selectedCard.name}: Place +1 Subterfuge token on ${op.name}${!canSub ? ' (Already has SUB)' : ''}`
+                });
+              }
             }
           } else if (selectedCard.specialAbility === 'troll_farm' || selectedCard.specialAbility === 'force_discard') {
-            if (opponent.hand.length > 0) {
+            if (opponent.hand.length === 0) {
               actions.push({
                 type: 'TAP_ABILITY',
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                desc: `Exhaust Troll Farm: Force ${opponent.name} to discard a card`
+                disabled: true,
+                disabledReason: `${opponent.name}'s hand is empty`,
+                desc: `${selectedCard.name} (Unavailable: ${opponent.name}'s hand is empty)`
+              });
+            } else {
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: selectedCard.id,
+                cardName: selectedCard.name,
+                card: selectedCard,
+                desc: `Exhaust ${selectedCard.name}: Force ${opponent.name} to discard a card`
               });
             }
           } else if (selectedCard.specialAbility === 'draw_card') {
@@ -887,9 +1079,19 @@ export class SpywarEngine {
               cardId: selectedCard.id,
               cardName: selectedCard.name,
               card: selectedCard,
-              desc: `Exhaust Research Facility: Draw 1 card`
+              desc: `Exhaust ${selectedCard.name}: Draw 1 card`
             });
           }
+        } else {
+          actions.push({
+            type: 'TAP_PROD',
+            cardId: selectedCard.id,
+            cardName: selectedCard.name,
+            card: selectedCard,
+            disabled: true,
+            disabledReason: 'Card is exhausted (E) - refreshes to Ready at start of your next turn',
+            desc: `${selectedCard.name} is Exhausted (E) - Refreshes next turn`
+          });
         }
         actions.push({
           type: 'PASS',
@@ -1007,41 +1209,82 @@ export class SpywarEngine {
           // (4) Special Abilities
           if (op.specialAbility === 'boksoon_discard_ass1') {
             const eligible = enemyOps.filter(e => (e.ass || 0) >= 1);
-            for (const target of eligible) {
+            if (eligible.length === 0) {
               actions.push({
                 type: 'OPERATIVE_ACTION',
                 cardId: op.id,
                 cardName: op.name,
                 card: op,
-                targetId: target.id,
-                targetName: target.name,
-                targetCard: target,
                 opType: 'boksoon_ass',
-                desc: `Boksoon Execution: Discard ${target.name} (Assassin skill >= 1)`
+                disabled: true,
+                disabledReason: 'No enemy operative in play with Assassin skill >= 1',
+                desc: `${op.name} Execution (Unavailable: No enemy with Assassin skill ≥ 1)`
+              });
+            } else {
+              for (const target of eligible) {
+                actions.push({
+                  type: 'OPERATIVE_ACTION',
+                  cardId: op.id,
+                  cardName: op.name,
+                  card: op,
+                  targetId: target.id,
+                  targetName: target.name,
+                  targetCard: target,
+                  opType: 'boksoon_ass',
+                  desc: `Boksoon Execution: Discard ${target.name} (Assassin skill >= 1)`
+                });
+              }
+            }
+          }
+          if (op.specialAbility === 'mata_hari_steal_card') {
+            if (opponent.hand.length === 0) {
+              actions.push({
+                type: 'OPERATIVE_ACTION',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                opType: 'mata_hari_steal',
+                disabled: true,
+                disabledReason: `${opponent.name}'s hand is empty`,
+                desc: `${op.name} Charm (Unavailable: ${opponent.name}'s hand is empty)`
+              });
+            } else {
+              actions.push({
+                type: 'OPERATIVE_ACTION',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                opType: 'mata_hari_steal',
+                desc: `Mata Hari Charm: Steal card from ${opponent.name}'s hand`
               });
             }
           }
-          if (op.specialAbility === 'mata_hari_steal_card' && opponent.hand.length > 0) {
-            actions.push({
-              type: 'OPERATIVE_ACTION',
-              cardId: op.id,
-              cardName: op.name,
-              card: op,
-              opType: 'mata_hari_steal',
-              desc: `Mata Hari Charm: Steal card from ${opponent.name}'s hand`
-            });
+          if (op.specialAbility === 'ghost_siphon_2') {
+            const oppCoins = this.getTotalSpendableCoins(opponent);
+            if (oppCoins === 0) {
+              actions.push({
+                type: 'OPERATIVE_ACTION',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                opType: 'ghost_siphon',
+                disabled: true,
+                disabledReason: `${opponent.name} has 0 spendable resources`,
+                desc: `${op.name} Cyber-Siphon (Unavailable: ${opponent.name} has 0 coins)`
+              });
+            } else {
+              actions.push({
+                type: 'OPERATIVE_ACTION',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                opType: 'ghost_siphon',
+                desc: `Ghost Cyber-Siphon: Steal 2 resources from ${opponent.name}`
+              });
+            }
           }
-          if (op.specialAbility === 'ghost_siphon_2' && this.getTotalSpendableCoins(opponent) > 0) {
-            actions.push({
-              type: 'OPERATIVE_ACTION',
-              cardId: op.id,
-              cardName: op.name,
-              card: op,
-              opType: 'ghost_siphon',
-              desc: `Ghost Cyber-Siphon: Steal 2 resources from ${opponent.name}`
-            });
-          }
-          if (op.specialAbility === 'dan_weak_sacrifice') {
+          if (op.specialAbility === 'dan_weak_sacrifice' || op.specialAbility === 'sacrifice_discard_hand_or_field') {
+            const isGeneric = op.specialAbility === 'sacrifice_discard_hand_or_field';
             if (opponent.hand.length > 0) {
               actions.push({
                 type: 'DAN_WEAK_SACRIFICE',
@@ -1049,7 +1292,20 @@ export class SpywarEngine {
                 cardName: op.name,
                 card: op,
                 subChoice: 'discard_hand',
-                desc: `Sacrifice Dan Weak: Force ${opponent.name} to discard entire hand`
+                desc: isGeneric
+                  ? `Sacrifice ${op.name}: Force ${opponent.name} to discard 1 card from hand`
+                  : `Sacrifice Dan Weak: Force ${opponent.name} to discard entire hand`
+              });
+            } else {
+              actions.push({
+                type: 'DAN_WEAK_SACRIFICE',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                subChoice: 'discard_hand',
+                disabled: true,
+                disabledReason: `${opponent.name}'s hand is already empty`,
+                desc: `Sacrifice ${op.name} [Hand Discard] (Unavailable: Opponent hand empty)`
               });
             }
             if (opponent.battlefield.length >= 1) {
@@ -1059,10 +1315,120 @@ export class SpywarEngine {
                 cardName: op.name,
                 card: op,
                 subChoice: 'discard_in_play',
-                desc: `Sacrifice Dan Weak: Force ${opponent.name} to discard 2 cards in play`
+                desc: `Sacrifice ${op.name}: Force ${opponent.name} to discard 2 cards in play`
+              });
+            } else {
+              actions.push({
+                type: 'DAN_WEAK_SACRIFICE',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                subChoice: 'discard_in_play',
+                disabled: true,
+                disabledReason: `${opponent.name} has no cards in play`,
+                desc: `Sacrifice ${op.name} [Field Discard] (Unavailable: Opponent battlefield empty)`
               });
             }
           }
+
+          if (op.specialAbility === 'armory_buff' || op.specialAbility === 'buff_off_or_def') {
+            const otherOps = player.battlefield.filter(c => c.type === 'Operative' && c.id !== op.id);
+            if (otherOps.length === 0) {
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                disabled: true,
+                disabledReason: 'No other operatives in play to buff',
+                desc: `Tap ${op.name} (Unavailable: No other operatives in play)`
+              });
+            } else {
+              for (const target of otherOps) {
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: op.id,
+                  cardName: op.name,
+                  card: op,
+                  targetId: target.id,
+                  targetName: target.name,
+                  targetCard: target,
+                  subChoice: 'buff_off',
+                  desc: `Tap ${op.name}: Give ${target.name} +1 Offense`
+                });
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: op.id,
+                  cardName: op.name,
+                  card: op,
+                  targetId: target.id,
+                  targetName: target.name,
+                  targetCard: target,
+                  subChoice: 'buff_def',
+                  desc: `Tap ${op.name}: Give ${target.name} +1 Defense`
+                });
+              }
+            }
+          }
+
+          if (op.specialAbility === 'buff_skill' || op.specialAbility === 'grant_skill_token') {
+            const targets = player.battlefield.filter(c => c.type === 'Operative');
+            for (const target of targets) {
+              const canAss = this.config.allowDuplicateSkillTokens || (target.ass || 0) === 0;
+              const canRaid = this.config.allowDuplicateSkillTokens || (target.raid || 0) === 0;
+              const canSub = this.config.allowDuplicateSkillTokens || (target.sub || 0) === 0;
+
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                targetId: target.id,
+                targetName: target.name,
+                targetCard: target,
+                subChoice: 'buff_ass',
+                disabled: !canAss,
+                disabledReason: !canAss ? `${target.name} already has Assassin skill` : undefined,
+                desc: `Tap ${op.name}: Place +1 Assassin token on ${target.name}${!canAss ? ' (Already has ASS)' : ''}`
+              });
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                targetId: target.id,
+                targetName: target.name,
+                targetCard: target,
+                subChoice: 'buff_raid',
+                disabled: !canRaid,
+                disabledReason: !canRaid ? `${target.name} already has Raid skill` : undefined,
+                desc: `Tap ${op.name}: Place +1 Raid token on ${target.name}${!canRaid ? ' (Already has RAID)' : ''}`
+              });
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: op.id,
+                cardName: op.name,
+                card: op,
+                targetId: target.id,
+                targetName: target.name,
+                targetCard: target,
+                subChoice: 'buff_sub',
+                disabled: !canSub,
+                disabledReason: !canSub ? `${target.name} already has Subterfuge skill` : undefined,
+                desc: `Tap ${op.name}: Place +1 Subterfuge token on ${target.name}${!canSub ? ' (Already has SUB)' : ''}`
+              });
+            }
+          }
+        } else {
+          actions.push({
+            type: 'OPERATIVE_ACTION',
+            cardId: selectedCard.id,
+            cardName: selectedCard.name,
+            card: selectedCard,
+            disabled: true,
+            disabledReason: 'Card is exhausted (E) - refreshes to Ready at start of your next turn',
+            desc: `${selectedCard.name} is Exhausted (E) - Refreshes next turn`
+          });
         }
         actions.push({
           type: 'PASS',
@@ -1111,6 +1477,43 @@ export class SpywarEngine {
           card: player.affiliation,
           desc: 'Exhaust IMF to draw 1 card'
         });
+      } else if (player.affiliation.specialAbility === 'buff_skill') {
+        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        for (const op of friendlyOps) {
+          actions.push({
+            type: 'TAP_ABILITY',
+            cardId: player.affiliation.id,
+            cardName: player.affiliation.name,
+            card: player.affiliation,
+            targetId: op.id,
+            targetName: op.name,
+            targetCard: op,
+            subChoice: 'buff_ass',
+            desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Assassin skill`
+          });
+          actions.push({
+            type: 'TAP_ABILITY',
+            cardId: player.affiliation.id,
+            cardName: player.affiliation.name,
+            card: player.affiliation,
+            targetId: op.id,
+            targetName: op.name,
+            targetCard: op,
+            subChoice: 'buff_raid',
+            desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Raid skill`
+          });
+          actions.push({
+            type: 'TAP_ABILITY',
+            cardId: player.affiliation.id,
+            cardName: player.affiliation.name,
+            card: player.affiliation,
+            targetId: op.id,
+            targetName: op.name,
+            targetCard: op,
+            subChoice: 'buff_sub',
+            desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Subterfuge skill`
+          });
+        }
       }
     }
 
@@ -1416,7 +1819,8 @@ export class SpywarEngine {
     player: Player,
     opponent: Player,
     action: Action,
-    defenderCardIds?: string[]
+    defenderCardIds?: string[],
+    bonusDefense: number = 0
   ): { success: boolean; thwarted?: boolean; message: string; defendersUsed?: Card[]; totalDef?: number } {
     if (action.type === 'PASS') {
       this.endPlayerTurn();
@@ -1492,15 +1896,15 @@ export class SpywarEngine {
         }
       }
 
-      if (card.specialAbility === 'armory_buff') {
+      if (card.specialAbility === 'armory_buff' || card.specialAbility === 'buff_off_or_def') {
         const target = action.targetCard!;
         if (action.subChoice === 'buff_off') {
           target.tempOffenseBuff = (target.tempOffenseBuff || 0) + 1;
-          this.log(player.pid, 'LOC-ABILITY', `Armory granted +1 Offense to ${target.name}.`);
+          this.log(player.pid, 'ABILITY', `${card.name} granted +1 Offense to ${target.name}.`);
           return { success: true, message: `Granted +1 Offense to ${target.name}.` };
         } else {
           target.tempDefenseBuff = (target.tempDefenseBuff || 0) + 1;
-          this.log(player.pid, 'LOC-ABILITY', `Armory granted +1 Defense to ${target.name}.`);
+          this.log(player.pid, 'ABILITY', `${card.name} granted +1 Defense to ${target.name}.`);
           return { success: true, message: `Granted +1 Defense to ${target.name}.` };
         }
       }
@@ -1515,6 +1919,23 @@ export class SpywarEngine {
             this.placeMissionTokens(player, 'hand_wipe', 1);
           }
           return { success: true, message: `Forced ${opponent.name} to discard ${dropped.name}.` };
+        }
+      }
+
+      if (card.specialAbility === 'buff_skill' || card.specialAbility === 'grant_skill_token') {
+        const target = action.targetCard!;
+        if (action.subChoice === 'buff_ass') {
+          target.ass = (target.ass || 0) + 1;
+          this.log(player.pid, 'ABILITY', `${card.name} granted +1 Assassin token to ${target.name} (Total ASS: ${target.ass}).`);
+          return { success: true, message: `Granted +1 Assassin token to ${target.name}.` };
+        } else if (action.subChoice === 'buff_raid') {
+          target.raid = (target.raid || 0) + 1;
+          this.log(player.pid, 'ABILITY', `${card.name} granted +1 Raid token to ${target.name} (Total RAID: ${target.raid}).`);
+          return { success: true, message: `Granted +1 Raid token to ${target.name}.` };
+        } else if (action.subChoice === 'buff_sub') {
+          target.sub = (target.sub || 0) + 1;
+          this.log(player.pid, 'ABILITY', `${card.name} granted +1 Subterfuge token to ${target.name} (Total SUB: ${target.sub}).`);
+          return { success: true, message: `Granted +1 Subterfuge token to ${target.name}.` };
         }
       }
     }
@@ -1562,18 +1983,76 @@ export class SpywarEngine {
         player.battlefield.push(inst);
         this.log(player.pid, 'PLAY-OP', `Deployed Operative: ${card.name} (Cost: ${cost}) [Off:${card.off}/Def:${card.def}] ${opExh ? '(E)' : '(R)'}.`);
 
-        // Ghost: Siphons 2 resources upon deployment
-        if (card.name === 'Ghost') {
+        // Ghost / ghost_siphon_2: Siphons 2 resources upon deployment
+        if (card.name === 'Ghost' || card.specialAbility === 'ghost_siphon_2') {
           const stolen = Math.min(this.getTotalSpendableCoins(opponent), 2);
           if (stolen > 0) {
             this.spendCoins(opponent, stolen);
             player.current_turn_coins += stolen;
             player.telemetry.raidedCoinsThisTurn += stolen;
-            this.log(player.pid, 'GHOST-SIPHON', `Ghost triggered deployment siphon! Stole ${stolen} resources from ${opponent.name}.`);
+            this.log(player.pid, 'GHOST-SIPHON', `${card.name} triggered deployment siphon! Stole ${stolen} resources from ${opponent.name}.`);
             this.placeMissionTokens(player, 'res_theft', stolen);
           }
         }
         return { success: true, message: `Deployed ${card.name}.` };
+      }
+
+      if (card.specialAbility === 'assemble_strike_defense') {
+        if (card.type === 'Support') {
+          player.discard_pile.push(card);
+        } else {
+          const opExh = this.config.operativeSummonState === 'E';
+          player.battlefield.push({ ...card, exhausted: opExh });
+        }
+
+        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        if (action.subChoice === 'assemble_defense') {
+          if (friendlyOps.length > 0) {
+            friendlyOps[0].tempDefenseBuff = (friendlyOps[0].tempDefenseBuff || 0) + 2;
+            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! +2 Defense token placed on ${friendlyOps[0].name}.`);
+          } else {
+            const defToken: Card = {
+              id: `token_def_${Date.now()}`,
+              name: 'Defense Team Token',
+              type: 'Operative',
+              cost: 0,
+              off: 1,
+              def: 3,
+              ass: 0,
+              raid: 0,
+              sub: 0,
+              production: 0,
+              exhausted: this.config.operativeSummonState === 'E',
+              tempDefenseBuff: 2
+            };
+            player.battlefield.push(defToken);
+            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! Deployed Defense Team Token (+2 Defense).`);
+          }
+          return { success: true, message: `Assembled Defense Team (+2 Defense).` };
+        } else {
+          if (friendlyOps.length > 0) {
+            friendlyOps[0].tempOffenseBuff = (friendlyOps[0].tempOffenseBuff || 0) + 2;
+            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! +2 Offense token placed on ${friendlyOps[0].name}.`);
+          } else {
+            const strikeToken: Card = {
+              id: `token_strike_${Date.now()}`,
+              name: 'Strike Team Token',
+              type: 'Operative',
+              cost: 0,
+              off: 3,
+              def: 1,
+              ass: 0,
+              raid: 0,
+              sub: 0,
+              production: 0,
+              exhausted: this.config.operativeSummonState === 'E',
+              tempOffenseBuff: 2
+            };
+            player.battlefield.push(strikeToken);
+            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! Deployed Strike Team Token (+2 Offense).`);
+          }
+          return { success: true, message: `Assembled Strike Team (+2 Offense).` };
+        }
       }
 
       if (card.type === 'Support') {
@@ -1586,11 +2065,12 @@ export class SpywarEngine {
 
     if (action.type === 'DAN_WEAK_SACRIFICE') {
       const op = action.card!;
+      const isGeneric = op.specialAbility === 'sacrifice_discard_hand_or_field';
       const threatType = action.subChoice === 'discard_hand' ? 'sub' : 'ass';
       const incomingAttack = (op.off || 4) + (threatType === 'ass' ? (op.ass || 2) : (op.sub || 2)); // 6
-      const defRes = this.resolveDefense(opponent, threatType, incomingAttack, defenderCardIds || action.defenderCardIds);
+      const defRes = this.resolveDefense(opponent, threatType, incomingAttack, defenderCardIds || action.defenderCardIds, bonusDefense);
 
-      // Dan Weak is sacrificed from play regardless
+      // Card is sacrificed from play regardless
       const idx = player.battlefield.findIndex(c => c.id === op.id);
       if (idx !== -1) {
         player.battlefield.splice(idx, 1);
@@ -1598,14 +2078,14 @@ export class SpywarEngine {
       }
 
       if (defRes.thwarted) {
-        this.log(opponent.pid, threatType === 'ass' ? 'THWART-ASS' : 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} teamed up against Dan Weak's Attack (ATK: ${incomingAttack})! Attack THWARTED!`);
+        this.log(opponent.pid, threatType === 'ass' ? 'THWART-ASS' : 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} teamed up against ${op.name}'s Attack (ATK: ${incomingAttack})! Attack THWARTED!`);
         this.placeMissionTokens(opponent, threatType === 'ass' ? 'thwart_ass' : 'thwart_sub', 1);
-        return { success: true, thwarted: true, message: `Dan Weak attack thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
+        return { success: true, thwarted: true, message: `${op.name} attack thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       }
 
       if (action.subChoice === 'discard_hand') {
-        const effectiveSub = Math.max(0, incomingAttack - defRes.totalDef);
-        const count = Math.min(opponent.hand.length, effectiveSub);
+        const effectiveSub = isGeneric ? 1 : Math.max(0, incomingAttack - defRes.totalDef);
+        const count = Math.min(opponent.hand.length, isGeneric ? 1 : effectiveSub);
         const dropped: string[] = [];
         for (let i = 0; i < count; i++) {
           if (opponent.hand.length > 0) {
@@ -1616,14 +2096,14 @@ export class SpywarEngine {
           }
         }
         if (defRes.defenders.length > 0) {
-          this.log(player.pid, 'DAN-WEAK-SACRIFICE', `Sacrificed Dan Weak! Defenders (DEF: ${defRes.totalDef}) reduced impact, but forced ${opponent.name} to discard ${count} cards: [${dropped.join(', ')}].`);
+          this.log(player.pid, 'SACRIFICE', `Sacrificed ${op.name}! Defenders (DEF: ${defRes.totalDef}) intercepted, but forced ${opponent.name} to discard ${count} card(s): [${dropped.join(', ')}].`);
         } else {
-          this.log(player.pid, 'DAN-WEAK-SACRIFICE', `Sacrificed Dan Weak! Forced ${opponent.name} to discard hand (${count} cards: [${dropped.join(', ')}]).`);
+          this.log(player.pid, 'SACRIFICE', `Sacrificed ${op.name}! Forced ${opponent.name} to discard ${count} card(s) from hand: [${dropped.join(', ')}].`);
         }
         if (opponent.hand.length === 0 && count > 0) {
           this.placeMissionTokens(player, 'hand_wipe', 1);
         }
-        return { success: true, message: `Dan Weak wiped ${opponent.name}'s hand.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
+        return { success: true, message: `${op.name} forced ${opponent.name} to discard ${count} card(s).`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       } else {
         // Discard 2 in-play cards
         const removed: string[] = [];
@@ -1638,8 +2118,8 @@ export class SpywarEngine {
             }
           }
         }
-        this.log(player.pid, 'DAN-WEAK-SACRIFICE', `Sacrificed Dan Weak! Discarded 2 cards from ${opponent.name}'s battlefield: [${removed.join(', ')}].`);
-        return { success: true, message: `Dan Weak eliminated 2 cards: ${removed.join(', ')}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
+        this.log(player.pid, 'SACRIFICE', `Sacrificed ${op.name}! Discarded ${removed.length} card(s) from ${opponent.name}'s battlefield: [${removed.join(', ')}].`);
+        return { success: true, message: `${op.name} eliminated ${removed.length} card(s): ${removed.join(', ')}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       }
     }
 
@@ -1734,7 +2214,7 @@ export class SpywarEngine {
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
-        const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds);
+        const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds, bonusDefense);
 
         // Calculate target's innate defense if target was not already one of the active defending operatives
         const isExh = target.exhausted;
@@ -1816,7 +2296,7 @@ export class SpywarEngine {
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
-        const defRes = this.resolveDefense(opponent, 'raid', totalRaidOff, defenderCardIds || action.defenderCardIds);
+        const defRes = this.resolveDefense(opponent, 'raid', totalRaidOff, defenderCardIds || action.defenderCardIds, bonusDefense);
         const effectiveDef = defRes.totalDef;
 
         const discardFromBattlefield = (p: Player, c: Card) => {
@@ -1892,7 +2372,7 @@ export class SpywarEngine {
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
         // DEFENSIVE TEAM ASSIGNMENT (Rule 2)
-        const defRes = this.resolveDefense(opponent, 'sub', totalSubOff, defenderCardIds || action.defenderCardIds);
+        const defRes = this.resolveDefense(opponent, 'sub', totalSubOff, defenderCardIds || action.defenderCardIds, bonusDefense);
         const effectiveDef = defRes.totalDef;
 
         const discardFromBattlefield = (p: Player, c: Card) => {
@@ -2026,7 +2506,8 @@ export class SpywarEngine {
     defender: Player,
     threatType: 'ass' | 'sub' | 'raid',
     incomingAttack: number,
-    defenderCardIds?: string[]
+    defenderCardIds?: string[],
+    bonusDefense: number = 0
   ): { defenders: Card[]; totalDef: number; thwarted: boolean; message: string } {
     const readyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
     let assigned: Card[] = [];
@@ -2039,7 +2520,7 @@ export class SpywarEngine {
       assigned = this.selectAiDefenders(defender, threatType, incomingAttack);
     }
 
-    if (assigned.length === 0) {
+    if (assigned.length === 0 && bonusDefense <= 0) {
       return {
         defenders: [],
         totalDef: 0,
@@ -2063,12 +2544,63 @@ export class SpywarEngine {
       parts.push(`${d.name} (${calc.baseDef + calc.tempBuff}${calc.skillBonus > 0 ? `+${calc.skillBonus} ${skillName}` : ''})`);
     }
 
+    if (bonusDefense > 0) {
+      totalDef += bonusDefense;
+      parts.push(`Support/Defense Bonus (+${bonusDefense})`);
+    }
+
     const thwarted = totalDef >= incomingAttack;
     return {
       defenders: assigned,
       totalDef,
       thwarted,
-      message: `${assigned.map(d => d.name).join(' + ')} (Total DEF: ${totalDef}) [${parts.join(', ')}]`
+      message: `${assigned.length > 0 ? assigned.map(d => d.name).join(' + ') : 'Defensive Reactions'} (Total DEF: ${totalDef}) [${parts.join(', ')}]`
+    };
+  }
+
+  // Plays a defensive support reaction card out of turn when player is defending
+  playDefensiveReactionCard(
+    defender: Player,
+    cardId: string,
+    subChoice?: 'assemble_defense' | 'assemble_strike'
+  ): { success: boolean; defBonus: number; message: string } {
+    const cardIdx = defender.hand.findIndex(c => c.id === cardId);
+    if (cardIdx === -1) {
+      return { success: false, defBonus: 0, message: 'Card not found in hand.' };
+    }
+    const card = defender.hand[cardIdx];
+    if (card.type !== 'Support' && !card.canPlayOnDefense && card.specialAbility !== 'assemble_strike_defense') {
+      return { success: false, defBonus: 0, message: 'Card cannot be played out of turn on defense.' };
+    }
+
+    defender.hand.splice(cardIdx, 1);
+    defender.discard_pile.push(card);
+
+    let defBonus = 0;
+    if (card.specialAbility === 'assemble_strike_defense') {
+      const readyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
+      if (subChoice === 'assemble_strike') {
+        if (readyOps.length > 0) {
+          readyOps[0].tempOffenseBuff = (readyOps[0].tempOffenseBuff || 0) + 2;
+        }
+        defBonus = 1;
+        this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn! Assembled Strike Team (+2 Offense, +1 Intercept DEF).`);
+      } else {
+        if (readyOps.length > 0) {
+          readyOps[0].tempDefenseBuff = (readyOps[0].tempDefenseBuff || 0) + 2;
+        }
+        defBonus = 2;
+        this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn! Assembled Defense Team (+2 DEF to intercept!).`);
+      }
+    } else {
+      defBonus = card.def || 2;
+      this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn as defensive reaction (+${defBonus} DEF)!`);
+    }
+
+    return {
+      success: true,
+      defBonus,
+      message: `Played ${card.name} out of turn: +${defBonus} Defense bonus granted!`
     };
   }
 

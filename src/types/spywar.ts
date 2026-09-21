@@ -25,10 +25,16 @@ export interface Card {
   // Abilities
   specialAbility?: string;
   abilityText?: string;
+  canPlayOnDefense?: boolean;
+  // Mission specific fields
+  points?: number;
+  req?: number;
+  missionType?: string;
   // Meta
   isToken?: boolean;
   isNamed?: boolean;
   isOriginal?: boolean;
+  isModifiedOriginal?: boolean;
   parentCardId?: string;
   version?: number;
 }
@@ -41,6 +47,8 @@ export interface Mission {
   points: number;
   tokens: Record<string, number>; // pid -> count
   description: string;
+  isOriginal?: boolean;
+  isModifiedOriginal?: boolean;
 }
 
 export interface TurnTelemetry {
@@ -93,8 +101,10 @@ export interface Action {
   targetName?: string;
   targetCard?: Card;
   opType?: 'ass' | 'raid' | 'sub' | 'hold' | 'boksoon_ass' | 'mata_hari_steal' | 'ghost_siphon';
-  subChoice?: 'discard_hand' | 'discard_in_play' | 'buff_off' | 'buff_def';
+  subChoice?: 'discard_hand' | 'discard_in_play' | 'buff_off' | 'buff_def' | 'buff_ass' | 'buff_raid' | 'buff_sub' | 'assemble_strike' | 'assemble_defense';
   desc: string;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 export interface LogEntry {

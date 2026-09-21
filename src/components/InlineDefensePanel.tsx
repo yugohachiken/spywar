@@ -15,7 +15,7 @@ interface InlineDefensePanelProps {
   readyOps: Card[];
   selectedDefenderIds: string[];
   onToggleDefender: (cardId: string) => void;
-  onConfirmDefense: (defenderIds: string[]) => void;
+  onConfirmDefense: (defenderIds: string[], bonusDef?: number) => void;
   onDeclineDefense: () => void;
   isOnlinePeerWaiting?: boolean;
 }
@@ -36,6 +36,22 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   onDeclineDefense,
   isOnlinePeerWaiting = false
 }) => {
+  const [bonusDef, setBonusDef] = React.useState(0);
+  const [playedReactions, setPlayedReactions] = React.useState<{ name: string; bonus: number }[]>([]);
+
+  // Eligible out-of-turn defense cards in hand
+  const reactionCards = defender.hand.filter(
+    c => c.canPlayOnDefense || c.type === 'Support' || c.specialAbility === 'assemble_strike_defense'
+  );
+
+  const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike') => {
+    const res = engine.playDefensiveReactionCard(defender, card.id, subChoice);
+    if (res.success) {
+      setBonusDef(prev => prev + res.defBonus);
+      setPlayedReactions(prev => [...prev, { name: card.name, bonus: res.defBonus }]);
+    }
+  };
+
   // If target is specified and defending against assassination, calculate target's innate defense
   const isAss = threatType === 'ass';
   const targetAlreadyInDefenders = targetCard ? selectedDefenderIds.includes(targetCard.id) : false;
@@ -49,10 +65,10 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   const defendersTotalDef = selectedOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0);
 
   // Total defense against the strike
-  const totalCombinedDefense = defendersTotalDef + targetInnateDef;
+  const totalCombinedDefense = defendersTotalDef + targetInnateDef + bonusDef;
   const isThwarted = totalCombinedDefense >= incomingAttack;
 
-  const allPossibleDef = readyOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0) + targetInnateDef;
+  const allPossibleDef = readyOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0) + targetInnateDef + bonusDef;
 
   return (
     <div className="p-4 rounded-xl bg-gradient-to-r from-red-950/70 via-zinc-900 to-zinc-950 border-2 border-red-500/80 shadow-2xl space-y-3.5 animate-in fade-in slide-in-from-top-3 duration-200">
@@ -106,6 +122,59 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
         </div>
       </div>
 
+      {/* Reaction Cards in Hand (Support / Intercept Cards playable out of turn) */}
+      {reactionCards.length > 0 && !isOnlinePeerWaiting && (
+        <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/30 text-xs font-mono space-y-2">
+          <div className="flex items-center justify-between text-indigo-300">
+            <span className="font-semibold flex items-center gap-1.5">
+              <span>⚡ Out-of-Turn Reaction Cards in Hand</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-900/80 text-indigo-200">Defending</span>
+            </span>
+            {playedReactions.length > 0 && (
+              <span className="text-emerald-400 font-bold">
+                +{bonusDef} DEF from [{playedReactions.map(r => r.name).join(', ')}]
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {reactionCards.map(c => {
+              const isAssemble = c.specialAbility === 'assemble_strike_defense';
+              return (
+                <div key={c.id} className="flex items-center gap-1.5 bg-zinc-900 border border-indigo-500/40 rounded-lg p-1.5">
+                  <span className="text-zinc-200 font-bold text-xs">{c.name}</span>
+                  {isAssemble ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handlePlayReaction(c, 'assemble_defense')}
+                        className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold"
+                      >
+                        +2 DEF Team
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePlayReaction(c, 'assemble_strike')}
+                        className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold"
+                      >
+                        +1 DEF / Strike
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handlePlayReaction(c)}
+                      className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold"
+                    >
+                      Play (+{c.def || 2} DEF)
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Defense Assessment Status Bar */}
       <div className="p-2.5 rounded-lg border text-xs font-mono flex items-center justify-between gap-3 bg-zinc-950/70 border-zinc-800">
         <div className="flex items-center gap-2">
@@ -113,6 +182,9 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
           <span className={`font-bold text-sm ${totalCombinedDefense > incomingAttack ? 'text-emerald-400' : totalCombinedDefense === incomingAttack ? 'text-amber-400' : 'text-rose-400'}`}>
             {totalCombinedDefense} DEF
           </span>
+          {bonusDef > 0 && (
+            <span className="text-indigo-400 text-xs">(includes +{bonusDef} reaction)</span>
+          )}
           <span className="text-zinc-500 text-xs">vs {incomingAttack} ATK</span>
         </div>
 
@@ -170,7 +242,7 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onConfirmDefense(readyOps.map(c => c.id))}
+                onClick={() => onConfirmDefense(readyOps.map(c => c.id), bonusDef)}
                 className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-mono font-bold transition-colors border border-amber-500/30"
                 title="Shortcut to commit all available Ready Operative cards to defend"
               >
@@ -179,7 +251,7 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => onConfirmDefense(selectedDefenderIds)}
+                onClick={() => onConfirmDefense(selectedDefenderIds, bonusDef)}
                 className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-mono font-bold shadow-md transition-colors flex items-center gap-1.5"
               >
                 <Shield className="w-4 h-4" />

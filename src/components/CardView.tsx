@@ -152,20 +152,29 @@ export const CardView: React.FC<CardViewProps> = ({
         <div className="grid grid-cols-2 gap-1 py-1 px-1.5 rounded bg-black/40 border border-zinc-800/80 my-0.5 font-mono text-[11px]">
           <div className="flex items-center gap-1 text-red-300">
             <Sword className="w-3 h-3 text-red-400" />
-            <span>{(card.off || 0) + (card.tempOffenseBuff || 0)}</span>
-            {card.tempOffenseBuff ? <span className="text-emerald-400 text-[9px]">+{card.tempOffenseBuff}</span> : null}
+            <span>{(card.off || 0) + (card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
+            {(card.tempOffenseBuff || 0) + (card.techTokens || 0) > 0 ? (
+              <span className="text-emerald-400 text-[9px]">+{(card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
+            ) : null}
           </div>
           <div className="flex items-center gap-1 text-blue-300 justify-end">
             <Shield className="w-3 h-3 text-blue-400" />
-            <span>{(card.def || 0) + (card.tempDefenseBuff || 0)}</span>
-            {card.tempDefenseBuff ? <span className="text-emerald-400 text-[9px]">+{card.tempDefenseBuff}</span> : null}
+            <span>{(card.def || 0) + (card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
+            {(card.tempDefenseBuff || 0) + (card.techTokens || 0) > 0 ? (
+              <span className="text-emerald-400 text-[9px]">+{(card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
+            ) : null}
           </div>
         </div>
       )}
 
-      {/* Skills Badges */}
+      {/* Skills Badges & Tech Tokens */}
       {card.type === 'Operative' && (
         <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-zinc-300 my-0.5">
+          {(card.techTokens || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
+              ⚡ Tech: +{card.techTokens}/+{card.techTokens}
+            </span>
+          )}
           {(card.ass || 0) > 0 && (
             <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-800/50">
               <Skull className="w-2.5 h-2.5" /> Ass:{card.ass}

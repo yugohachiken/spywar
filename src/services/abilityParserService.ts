@@ -3,11 +3,14 @@
  * Standardized Keyword Syntax Interpreter and Engine Action Rule Compiler for Spywar
  */
 
+import { KeywordRegistryService } from './keywordRegistryService';
+
 export type AbilityTriggerType = 
   | 'tap' 
   | 'sacrifice' 
   | 'deploy' 
   | 'reaction_defense' 
+  | 'pay_coins'
   | 'passive';
 
 export type AbilityTargetType = 
@@ -33,6 +36,7 @@ export type AtomicEffectType =
 export interface AtomicEffect {
   type: AtomicEffectType;
   stat?: 'off' | 'def' | 'both';
+  tokenType?: 'skill' | 'tech' | 'custom' | string;
   skill?: 'ass' | 'raid' | 'sub';
   skillOptions?: ('ass' | 'raid' | 'sub')[];
   amount?: number;
@@ -49,6 +53,9 @@ export interface ParsedAbilityDefinition {
   id?: string;
   name?: string;
   trigger: AbilityTriggerType;
+  requiresTap?: boolean;
+  isPassive?: boolean; // Card does not Exhaust when using Special Ability
+  requiresSacrifice?: boolean;
   costCoins?: number;
   targetType: AbilityTargetType;
   effects: AtomicEffect[];
@@ -92,25 +99,73 @@ export class AbilityParserService {
 
     const lower = raw.toLowerCase();
 
-    // 1. Detect Trigger
+    // 0. Detect Coin / Resource Payment Cost (Multi-Trigger or Cost Requirement)
+    let costCoins = 0;
+    const payMatch = lower.match(/(?:pay|costs?)\s*([0-9]+)\s*(?:coins?|resources?|spendables?)?\b/i);
+    if (payMatch) {
+      costCoins = parseInt(payMatch[1]);
+      recognizedKeywords.push(`Pay ${costCoins} Resource(s)`);
+    } else if (presetConfig?.costCoins) {
+      costCoins = presetConfig.costCoins;
+      recognizedKeywords.push(`Pay ${costCoins} Resource(s)`);
+    }
+
+    // 1. Detect Trigger & Multi-Trigger flags
+    let requiresTap = false;
+    let isPassive = false;
+    let requiresSacrifice = false;
     let trigger: AbilityTriggerType = 'tap';
-    if (lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction')) {
+
+    const hasPassiveKeyword = lower.includes('passive');
+    const hasTapKeyword = lower.includes('tap') || lower.includes('exhaust');
+    const hasSacrificeKeyword = lower.includes('sacrifice') || lower.includes('discard while in play');
+    const hasDeployKeyword = lower.includes('when deployed') || lower.includes('on deploy') || lower.includes('on play') || lower.includes('enter the battlefield');
+    const hasReactionKeyword = lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction');
+
+    if (hasReactionKeyword) {
       trigger = 'reaction_defense';
       recognizedKeywords.push('Reaction / Intercept');
-    } else if (lower.includes('sacrifice') || lower.includes('discard while in play')) {
+    } else if (hasSacrificeKeyword) {
       trigger = 'sacrifice';
+      requiresSacrifice = true;
       recognizedKeywords.push('Sacrifice');
-    } else if (lower.includes('when deployed') || lower.includes('on deploy') || lower.includes('on play') || lower.includes('enter the battlefield')) {
+      if (costCoins > 0) {
+        recognizedKeywords.push(`Multi-Trigger: Sacrifice + Pay ${costCoins}`);
+      }
+    } else if (hasDeployKeyword) {
       trigger = 'deploy';
       recognizedKeywords.push('On Deploy');
-    } else if (lower.includes('passive') || lower.includes('cost 1 fewer') || lower.includes('discount')) {
+      if (costCoins > 0) {
+        recognizedKeywords.push(`Multi-Trigger: Deploy + Pay ${costCoins}`);
+      }
+    } else if (hasPassiveKeyword) {
       trigger = 'passive';
-      recognizedKeywords.push('Passive');
-    } else if (lower.includes('tap') || lower.includes('exhaust')) {
+      isPassive = true;
+      requiresTap = false;
+      recognizedKeywords.push('Passive (No Exhaust)');
+      if (costCoins > 0) {
+        recognizedKeywords.push(`Multi-Trigger: Passive + Pay ${costCoins}`);
+      }
+    } else if (hasTapKeyword) {
       trigger = 'tap';
+      requiresTap = true;
+      isPassive = false;
       recognizedKeywords.push('Tap / Exhaust');
+      if (costCoins > 0) {
+        recognizedKeywords.push(`Multi-Trigger: Tap + Pay ${costCoins}`);
+      }
+    } else if (costCoins > 0) {
+      trigger = 'pay_coins';
+      isPassive = true; // "Pay x" without tap does not exhaust
+      requiresTap = false;
+      recognizedKeywords.push(`Pay ${costCoins} Trigger (Passive / No Exhaust)`);
     } else if (presetConfig?.trigger) {
       trigger = presetConfig.trigger;
+      if (trigger === 'passive') isPassive = true;
+      if (trigger === 'tap') requiresTap = true;
+    } else {
+      trigger = 'tap';
+      requiresTap = true;
     }
 
     // 2. Detect Target Type
@@ -185,7 +240,23 @@ export class AbilityParserService {
       }
     }
 
-    // D. Skill Tokens (+1 ASS, RAID, SUB or choice of any)
+    // D. +x/+x Tech Tokens (Token that buffs OFF and DEF by x)
+    const techMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*tech(?:\s*token[s]?)?/i) 
+      || lower.match(/\+?\s*([0-9]+)\s*tech(?:\s*token[s]?)?/i);
+    if (techMatch) {
+      const amt = parseInt(techMatch[1]);
+      recognizedKeywords.push(`+${amt}/+${amt} Tech Token`);
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'tech',
+        stat: 'both',
+        amount: amt,
+        rawPhrase: `+${amt}/+${amt} Tech Token`
+      });
+      if (targetType === 'none') targetType = 'friendly_op';
+    }
+
+    // E. Skill Tokens (+1 ASS, RAID, SUB or choice of any)
     if (lower.includes('skill token') || (lower.includes('subterfuge') && lower.includes('assassin') && lower.includes('raid')) || lower.includes('grant_skill_token')) {
       recognizedKeywords.push('Grant Skill Token (ASS / RAID / SUB)');
       effects.push({
@@ -293,20 +364,36 @@ export class AbilityParserService {
       effects.push({ type: 'produce_coins', amount: amt });
     }
 
+    // K. Scan registered custom keywords
+    try {
+      const allKws = KeywordRegistryService.getInstance().getAllKeywords();
+      for (const kw of allKws) {
+        if (!kw.isBuiltIn && lower.includes(kw.keyword.toLowerCase())) {
+          recognizedKeywords.push(`[Custom] ${kw.keyword}`);
+        }
+      }
+    } catch {
+      // Ignore in non-browser / headless context
+    }
+
     const isValid = effects.length > 0;
     const canPlayOnDefense = trigger === 'reaction_defense' || lower.includes('on defense') || !!presetConfig?.canPlayOnDefense;
 
     // Generate human-readable summary
-    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense);
+    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense, costCoins, isPassive, requiresTap);
 
     return {
       trigger,
+      requiresTap,
+      isPassive,
+      requiresSacrifice,
+      costCoins: costCoins > 0 ? costCoins : undefined,
       targetType,
       effects,
       canPlayOnDefense,
       rawText: raw,
       isValid,
-      recognizedKeywords,
+      recognizedKeywords: Array.from(new Set(recognizedKeywords)),
       summary
     };
   }
@@ -320,31 +407,32 @@ export class AbilityParserService {
     effects: AtomicEffect[];
     canPlayOnDefense?: boolean;
     costCoins?: number;
+    isPassive?: boolean;
   }): string {
     const parts: string[] = [];
+    const hasCost = config.costCoins && config.costCoins > 0;
+    const costStr = hasCost ? `Pay ${config.costCoins} coin${config.costCoins! > 1 ? 's' : ''}` : '';
 
     // 1. Trigger prefix
     switch (config.trigger) {
       case 'tap':
-        parts.push('Tap:');
-        break;
-      case 'sacrifice':
-        parts.push('Sacrifice:');
-        break;
-      case 'deploy':
-        parts.push('On Deploy:');
-        break;
-      case 'reaction_defense':
-        parts.push('Intercept Reaction:');
+        parts.push(hasCost ? `Tap, ${costStr}:` : 'Tap:');
         break;
       case 'passive':
-        parts.push('Passive:');
+        parts.push(hasCost ? `Passive, ${costStr}:` : 'Passive:');
         break;
-    }
-
-    // 2. Cost if any
-    if (config.costCoins && config.costCoins > 0) {
-      parts.push(`Pay ${config.costCoins} coin${config.costCoins > 1 ? 's' : ''},`);
+      case 'sacrifice':
+        parts.push(hasCost ? `Sacrifice, ${costStr}:` : 'Sacrifice:');
+        break;
+      case 'pay_coins':
+        parts.push(hasCost ? `${costStr}:` : 'Pay 1 coin:');
+        break;
+      case 'deploy':
+        parts.push(hasCost ? `On Deploy, ${costStr}:` : 'On Deploy:');
+        break;
+      case 'reaction_defense':
+        parts.push(hasCost ? `Intercept Reaction, ${costStr}:` : 'Intercept Reaction:');
+        break;
     }
 
     // 3. Target phrasing
@@ -376,7 +464,9 @@ export class AbilityParserService {
       } else if (eff.type === 'buff_stat') {
         effectPhrases.push(`+${eff.amount || 1} ${eff.stat === 'off' ? 'Offense' : 'Defense'}`);
       } else if (eff.type === 'grant_token') {
-        if (eff.skillOptions && eff.skillOptions.length > 1) {
+        if (eff.tokenType === 'tech' || eff.stat === 'both') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Tech token`);
+        } else if (eff.skillOptions && eff.skillOptions.length > 1) {
           effectPhrases.push('grant +1 SUB, ASS, or RAID skill token');
         } else {
           effectPhrases.push(`grant +1 ${(eff.skill || 'ass').toUpperCase()} token`);
@@ -416,17 +506,39 @@ export class AbilityParserService {
     trigger: AbilityTriggerType,
     targetType: AbilityTargetType,
     effects: AtomicEffect[],
-    canPlayOnDefense: boolean
+    canPlayOnDefense: boolean,
+    costCoins?: number,
+    isPassive?: boolean,
+    requiresTap?: boolean
   ): string {
     if (effects.length === 0) {
       return 'Passive or unmodeled card text.';
     }
 
-    const triggerLabel = 
-      trigger === 'tap' ? '⚡ Tap (In Play)' :
-      trigger === 'sacrifice' ? '🔥 Sacrifice (From Play)' :
-      trigger === 'deploy' ? '✨ When Deployed' :
-      trigger === 'reaction_defense' ? '🛡️ Intercept Reaction' : 'Passive';
+    const costText = costCoins && costCoins > 0 ? ` + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}` : '';
+
+    let triggerLabel = '';
+    if (trigger === 'tap' && costCoins) {
+      triggerLabel = `⚡💰 Multi-Trigger: Tap + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
+    } else if (trigger === 'tap') {
+      triggerLabel = '⚡ Tap (In Play)';
+    } else if (trigger === 'passive' && costCoins) {
+      triggerLabel = `⚙️💰 Multi-Trigger: Passive (No Exhaust) + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
+    } else if (trigger === 'passive') {
+      triggerLabel = '⚙️ Passive (No Exhaust)';
+    } else if (trigger === 'pay_coins') {
+      triggerLabel = `💰 Pay ${costCoins || 1} Coin${(costCoins || 1) > 1 ? 's' : ''} (Passive / No Exhaust)`;
+    } else if (trigger === 'sacrifice' && costCoins) {
+      triggerLabel = `🔥💰 Multi-Trigger: Sacrifice + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
+    } else if (trigger === 'sacrifice') {
+      triggerLabel = '🔥 Sacrifice (From Play)';
+    } else if (trigger === 'deploy') {
+      triggerLabel = `✨ When Deployed${costText}`;
+    } else if (trigger === 'reaction_defense') {
+      triggerLabel = `🛡️ Intercept Reaction${costText}`;
+    } else {
+      triggerLabel = isPassive ? '⚙️ Passive (No Exhaust)' : 'Special Ability';
+    }
 
     const targetLabel =
       targetType === 'friendly_op' ? 'Friendly Op' :
@@ -437,7 +549,12 @@ export class AbilityParserService {
     const effectSummary = effects.map(e => {
       if (e.type === 'choice') return `Choice [${e.choiceLabels?.join(' / ')}]`;
       if (e.type === 'buff_stat') return `+${e.amount} ${e.stat?.toUpperCase()}`;
-      if (e.type === 'grant_token') return `+${e.amount} Token`;
+      if (e.type === 'grant_token') {
+        if (e.tokenType === 'tech' || e.stat === 'both') {
+          return `+${e.amount}/+${e.amount} Tech Token`;
+        }
+        return `+${e.amount} Token`;
+      }
       if (e.type === 'draw') return `Draw ${e.amount}`;
       if (e.type === 'siphon') return `Siphon ${e.amount}`;
       if (e.type === 'discard_hand') return `Opponent Discard Hand (${e.amount})`;

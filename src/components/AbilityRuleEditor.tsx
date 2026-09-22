@@ -7,6 +7,11 @@ import {
   ParsedAbilityDefinition 
 } from '../services/abilityParserService';
 import { 
+  KeywordRegistryService, 
+  KeywordDefinition, 
+  KeywordCategory 
+} from '../services/keywordRegistryService';
+import { 
   Zap, 
   Shield, 
   Flame, 
@@ -20,7 +25,12 @@ import {
   Layers,
   HelpCircle,
   Copy,
-  Crosshair
+  Crosshair,
+  BookOpen,
+  Trash2,
+  X,
+  PlusCircle,
+  ArrowRight
 } from 'lucide-react';
 
 interface AbilityRuleEditorProps {
@@ -35,15 +45,35 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   cardType = 'Operative'
 }) => {
   const parser = AbilityParserService.getInstance();
-  const [activeTab, setActiveTab] = useState<'visual' | 'syntax' | 'sandbox'>('syntax');
+  const keywordRegistry = KeywordRegistryService.getInstance();
+
+  const [activeTab, setActiveTab] = useState<'syntax' | 'visual' | 'sandbox' | 'keywords'>('syntax');
   const [text, setText] = useState<string>(initialText);
 
+  // Keyword Registry UI State
+  const [keywords, setKeywords] = useState<KeywordDefinition[]>(() => keywordRegistry.getAllKeywords());
+  const [selectedKwCategory, setSelectedKwCategory] = useState<'all' | KeywordCategory>('all');
+  const [showNewKeywordModal, setShowNewKeywordModal] = useState(false);
+  
+  // Custom Keyword Form State
+  const [newKwKeyword, setNewKwKeyword] = useState('');
+  const [newKwCategory, setNewKwCategory] = useState<KeywordCategory>('trigger');
+  const [newKwTemplate, setNewKwTemplate] = useState('');
+  const [newKwDesc, setNewKwDesc] = useState('');
+  const [newKwParamType, setNewKwParamType] = useState<'number' | 'none'>('number');
+  const [newKwDefaultVal, setNewKwDefaultVal] = useState<number>(1);
+  const [newKwSample, setNewKwSample] = useState('');
+
+  // Quick Chip Parameter State
+  const [chipParamX, setChipParamX] = useState<number>(1);
+
   // Visual Builder State
-  const [builderTrigger, setBuilderTrigger] = useState<AbilityTriggerType>('tap');
+  const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense'>('tap');
   const [builderTarget, setBuilderTarget] = useState<AbilityTargetType>('friendly_op');
-  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense'>('buff');
+  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense'>('buff');
   const [statType, setStatType] = useState<'off' | 'def' | 'both_choice'>('both_choice');
   const [statAmount, setStatAmount] = useState<number>(1);
+  const [techTokenAmount, setTechTokenAmount] = useState<number>(1);
   const [skillTokenChoice, setSkillTokenChoice] = useState<'any' | 'ass' | 'raid' | 'sub'>('any');
   const [drawAmount, setDrawAmount] = useState<number>(1);
   const [siphonAmount, setSiphonAmount] = useState<number>(2);
@@ -54,17 +84,23 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   const [tokenOff, setTokenOff] = useState<number>(1);
   const [tokenDef, setTokenDef] = useState<number>(1);
   const [defenseBonus, setDefenseBonus] = useState<number>(2);
-  const [costCoins, setCostCoins] = useState<number>(0);
+  const [costCoins, setCostCoins] = useState<number>(1);
 
   // Sandbox Test Simulation State
   const [sandboxLog, setSandboxLog] = useState<string[]>([]);
-  const [sandboxOpBuff, setSandboxOpBuff] = useState<{ off: number; def: number; tokens: string[] }>({ off: 2, def: 2, tokens: [] });
+  const [sandboxOpBuff, setSandboxOpBuff] = useState<{ off: number; def: number; tech: number; tokens: string[] }>({ off: 2, def: 2, tech: 0, tokens: [] });
+  const [sandboxCardExhausted, setSandboxCardExhausted] = useState<boolean>(false);
+  const [sandboxPlayerSpendables, setSandboxPlayerSpendables] = useState<number>(4);
   const [sandboxOpponentState, setSandboxOpponentState] = useState<{ hand: number; coins: number; inPlay: number }>({ hand: 4, coins: 5, inPlay: 3 });
 
   // Live parsed result
   const parsed = useMemo(() => {
     return parser.parseAbility(text);
   }, [text, parser]);
+
+  const refreshKeywords = () => {
+    setKeywords(keywordRegistry.getAllKeywords());
+  };
 
   const handleTextChange = (newVal: string) => {
     setText(newVal);
@@ -92,6 +128,14 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
           amount: statAmount
         });
       }
+    } else if (builderEffectCategory === 'tech_token') {
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'tech',
+        stat: 'both',
+        amount: techTokenAmount,
+        rawPhrase: `+${techTokenAmount}/+${techTokenAmount} Tech token`
+      });
     } else if (builderEffectCategory === 'skill') {
       if (skillTokenChoice === 'any') {
         effects.push({
@@ -139,11 +183,21 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
       });
     }
 
+    const isTapPay = builderTrigger === 'tap_pay';
+    const isPassivePay = builderTrigger === 'passive_pay';
+    const isPassiveOnly = builderTrigger === 'passive';
+    const requiresPay = isTapPay || isPassivePay;
+    const finalTrigger: AbilityTriggerType = 
+      isPassivePay || isPassiveOnly ? 'passive' : 
+      isTapPay ? 'tap' : 
+      builderTrigger as AbilityTriggerType;
+
     const generated = parser.generateStandardizedText({
-      trigger: builderTrigger,
+      trigger: finalTrigger,
       targetType: builderTarget,
       effects,
-      costCoins: costCoins > 0 ? costCoins : undefined,
+      costCoins: requiresPay ? Math.max(1, costCoins) : undefined,
+      isPassive: isPassiveOnly || isPassivePay,
       canPlayOnDefense: builderTrigger === 'reaction_defense'
     });
 
@@ -153,9 +207,32 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     setActiveTab('syntax');
   };
 
-  const handleInsertKeyword = (keyword: string) => {
-    const updated = text ? `${text} ${keyword}` : keyword;
+  const handleInsertKeyword = (phrase: string) => {
+    const updated = text.trim() ? `${text.trim()} ${phrase}` : phrase;
     handleTextChange(updated);
+  };
+
+  const handleCreateCustomKeyword = () => {
+    if (!newKwKeyword.trim() || !newKwTemplate.trim()) return;
+    keywordRegistry.addCustomKeyword({
+      keyword: newKwKeyword.trim(),
+      category: newKwCategory,
+      syntaxTemplate: newKwTemplate.trim(),
+      description: newKwDesc.trim() || `Custom ${newKwCategory} keyword`,
+      parameterType: newKwParamType,
+      defaultParamValue: newKwDefaultVal,
+      sampleUsage: newKwSample.trim()
+    });
+    refreshKeywords();
+    setShowNewKeywordModal(false);
+    setNewKwKeyword('');
+    setNewKwTemplate('');
+    setNewKwDesc('');
+  };
+
+  const handleDeleteCustomKeyword = (id: string) => {
+    keywordRegistry.deleteCustomKeyword(id);
+    refreshKeywords();
   };
 
   // Sandbox simulation runner
@@ -163,23 +240,46 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     const logs: string[] = [];
     logs.push(`🚀 Simulating Action Execution: [${parsed.summary}]`);
 
-    // Costs
-    if (parsed.trigger === 'tap') {
+    // 1. Check & Pay Resource Cost ("Pay x")
+    let spendables = sandboxPlayerSpendables;
+    if (parsed.costCoins && parsed.costCoins > 0) {
+      if (spendables < parsed.costCoins) {
+        logs.push(`❌ ACTIVATION FAILED: Requires ${parsed.costCoins} coin(s), but player only has ${spendables} Spendable(s).`);
+        setSandboxLog(logs);
+        return;
+      }
+      spendables -= parsed.costCoins;
+      logs.push(`🪙 Resource Cost Paid: Deducted ${parsed.costCoins} Spendable coin(s) (Remaining spendables: ${spendables}).`);
+    }
+
+    // 2. Trigger exhaustion vs Passive
+    let isExhausted = sandboxCardExhausted;
+    if (parsed.isPassive || parsed.trigger === 'passive') {
+      logs.push(`⚙️ Passive Ability Triggered: Card DOES NOT exhaust and remains Ready (R)!`);
+    } else if (parsed.requiresTap || parsed.trigger === 'tap') {
+      isExhausted = true;
       logs.push(`⚡ Cost Paid: Card exhausted (E).`);
-    } else if (parsed.trigger === 'sacrifice') {
-      logs.push(`🔥 Cost Paid: Card moved to Discard Pile.`);
+    } else if (parsed.trigger === 'sacrifice' || parsed.requiresSacrifice) {
+      logs.push(`🔥 Cost Paid: Card moved to Discard Pile (Sacrifice).`);
     } else if (parsed.trigger === 'reaction_defense') {
       logs.push(`🛡️ Cost Paid: Played as instant out-of-turn defensive reaction.`);
     }
 
-    // Effects
+    // 3. Effects
     let currentOppHand = sandboxOpponentState.hand;
     let currentOppCoins = sandboxOpponentState.coins;
     let currentOppInPlay = sandboxOpponentState.inPlay;
     let currentBuff = { ...sandboxOpBuff };
 
     for (const eff of parsed.effects) {
-      if (eff.type === 'buff_stat') {
+      if (eff.type === 'grant_token' && (eff.tokenType === 'tech' || eff.stat === 'both')) {
+        const amt = eff.amount || 1;
+        currentBuff.tech += amt;
+        currentBuff.off += amt;
+        currentBuff.def += amt;
+        currentBuff.tokens.push(`+${amt}/+${amt} Tech`);
+        logs.push(`⚡ Granted +${amt}/+${amt} Tech Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def}.`);
+      } else if (eff.type === 'buff_stat') {
         if (eff.stat === 'off') {
           currentBuff.off += eff.amount || 1;
           logs.push(`⚔️ Friendly Operative gained +${eff.amount} Offense (New OFF: ${currentBuff.off}).`);
@@ -214,15 +314,23 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
 
     logs.push(`✅ Action resolved cleanly with no errors.`);
     setSandboxOpBuff(currentBuff);
+    setSandboxCardExhausted(isExhausted);
+    setSandboxPlayerSpendables(spendables);
     setSandboxOpponentState({ hand: currentOppHand, coins: currentOppCoins, inPlay: currentOppInPlay });
     setSandboxLog(logs);
   };
 
   const resetSandbox = () => {
-    setSandboxOpBuff({ off: 2, def: 2, tokens: [] });
+    setSandboxOpBuff({ off: 2, def: 2, tech: 0, tokens: [] });
+    setSandboxCardExhausted(false);
+    setSandboxPlayerSpendables(4);
     setSandboxOpponentState({ hand: 4, coins: 5, inPlay: 3 });
     setSandboxLog(['Sandbox state reset to initial conditions.']);
   };
+
+  const filteredKeywords = selectedKwCategory === 'all' 
+    ? keywords 
+    : keywords.filter(k => k.category === selectedKwCategory);
 
   return (
     <div className="rounded-xl border border-zinc-700/80 bg-zinc-950/70 overflow-hidden text-xs font-sans">
@@ -230,7 +338,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
       <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
         <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-zinc-300">
           <Zap className="w-3.5 h-3.5 text-amber-400" />
-          <span>Action &amp; Ability Rule Editor</span>
+          <span>Action Studio Rule Engine</span>
         </div>
 
         <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
@@ -261,6 +369,16 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
           >
             <Play className="w-2.5 h-2.5" />
             <span>Sandbox Test</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('keywords')}
+            className={`px-2 py-1 rounded text-[11px] font-mono transition-colors flex items-center gap-1 ${
+              activeTab === 'keywords' ? 'bg-amber-500 text-zinc-950 font-bold' : 'text-cyan-400 hover:text-cyan-200'
+            }`}
+          >
+            <BookOpen className="w-2.5 h-2.5 text-cyan-400" />
+            <span>Keyword Studio</span>
           </button>
         </div>
       </div>
@@ -296,40 +414,120 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
               rows={3}
               value={text}
               onChange={e => handleTextChange(e.target.value)}
-              placeholder="e.g. Tap: Give target friendly operative +1 OFF or +1 DEF."
+              placeholder="e.g. Tap, Pay 2 coins: Give target friendly operative +1/+1 Tech token."
               className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 leading-relaxed font-mono"
             />
           </div>
 
-          {/* Quick Keyword Inserter Chips */}
-          <div>
-            <span className="block text-[10px] font-mono text-zinc-400 mb-1.5 uppercase font-semibold">
-              Quick Keyword Chips (Click to Insert)
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {[
-                'Tap:',
-                'Sacrifice:',
-                'On Deploy:',
-                'Intercept Reaction:',
-                'Give target friendly operative +1 OFF',
-                'Give target friendly operative +1 DEF',
-                'Grant +1 SUB, ASS, or RAID token',
-                'Draw 1 card',
-                'Siphon 2 coins from Opponent',
-                'Discard 1 card from hand or 2 cards in play',
-                'Spawn a 1/1 Shadow Warrior token',
-                '+2 DEF to Intercept'
-              ].map(chip => (
+          {/* Quick Keyword Inserter Chips with Parameter Control */}
+          <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase font-semibold flex items-center gap-1">
+                <span>Quick Keyword Chips</span>
+                <span className="text-zinc-500">({keywords.length} available)</span>
+              </span>
+              <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                <span className="text-zinc-400">Param x:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={chipParamX}
+                  onChange={e => setChipParamX(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-12 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-amber-400 font-bold text-center"
+                />
+              </div>
+            </div>
+
+            {/* Triggers & Costs Chips */}
+            <div className="space-y-1">
+              <span className="text-[9px] font-mono text-amber-400/80 uppercase font-bold">Triggers &amp; Multi-Triggers:</span>
+              <div className="flex flex-wrap gap-1">
                 <button
-                  key={chip}
                   type="button"
-                  onClick={() => handleInsertKeyword(chip)}
+                  onClick={() => handleInsertKeyword(`Tap:`)}
                   className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-300 border border-zinc-700/70 text-[10px] font-mono transition-colors"
                 >
-                  +{chip}
+                  +Tap:
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Passive:`)}
+                  className="px-2 py-0.5 rounded bg-cyan-950/60 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-700/70 text-[10px] font-mono transition-colors font-semibold"
+                >
+                  +Passive:
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Pay ${chipParamX} coin${chipParamX > 1 ? 's' : ''}:`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-700/70 text-[10px] font-mono transition-colors font-semibold"
+                >
+                  +Pay {chipParamX} coin{chipParamX > 1 ? 's' : ''}:
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Tap, Pay ${chipParamX} coin${chipParamX > 1 ? 's' : ''}:`)}
+                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Tap, Pay {chipParamX} coins:
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Passive, Pay ${chipParamX} coin${chipParamX > 1 ? 's' : ''}:`)}
+                  className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Passive, Pay {chipParamX} coins:
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Sacrifice:`)}
+                  className="px-2 py-0.5 rounded bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-700/70 text-[10px] font-mono transition-colors"
+                >
+                  +Sacrifice:
+                </button>
+              </div>
+            </div>
+
+            {/* Tokens & Effects Chips */}
+            <div className="space-y-1 pt-1">
+              <span className="text-[9px] font-mono text-cyan-400/80 uppercase font-bold">Tokens &amp; Effects:</span>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Give target friendly operative +${chipParamX}/+${chipParamX} Tech token.`)}
+                  className="px-2 py-0.5 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  ++{chipParamX}/+{chipParamX} Tech token
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Give target friendly operative +1 OFF or +1 DEF.`)}
+                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-mono transition-colors"
+                >
+                  ++1 OFF or +1 DEF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Grant +1 SUB, ASS, or RAID token.`)}
+                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-mono transition-colors"
+                >
+                  +Grant Skill Token
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Draw ${chipParamX} card${chipParamX > 1 ? 's' : ''}.`)}
+                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-mono transition-colors"
+                >
+                  +Draw {chipParamX} card(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Siphon 2 coins from Opponent.`)}
+                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-mono transition-colors"
+                >
+                  +Siphon 2 coins
+                </button>
+              </div>
             </div>
           </div>
 
@@ -340,6 +538,18 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 <Crosshair className="w-3 h-3 text-amber-400" />
                 Live Engine Action Interpretation:
               </span>
+              <div className="flex items-center gap-1">
+                {parsed.isPassive && (
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 text-[9px] font-bold">
+                    PASSIVE (NO EXHAUST)
+                  </span>
+                )}
+                {parsed.costCoins && parsed.costCoins > 0 ? (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 text-[9px] font-bold">
+                    PAY {parsed.costCoins} RESOURCE{parsed.costCoins > 1 ? 'S' : ''}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="text-amber-300 font-semibold">
               {parsed.summary}
@@ -365,18 +575,20 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
             {/* Trigger Selector */}
             <div>
               <label className="block text-[10px] text-zinc-400 mb-1 uppercase font-semibold">
-                1. Activation Trigger
+                1. Activation Trigger &amp; Multi-Trigger
               </label>
               <select
                 value={builderTrigger}
-                onChange={e => setBuilderTrigger(e.target.value as AbilityTriggerType)}
+                onChange={e => setBuilderTrigger(e.target.value as any)}
                 className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
               >
                 <option value="tap">⚡ Tap / Exhaust (In Play)</option>
+                <option value="passive">⚙️ Passive (Does NOT Exhaust card)</option>
+                <option value="tap_pay">⚡ Tap + Pay Resources (Multi-Trigger)</option>
+                <option value="passive_pay">⚙️ Passive + Pay Resources (Multi-Trigger, No Exhaust)</option>
                 <option value="sacrifice">🔥 Sacrifice (From Play to Discard)</option>
                 <option value="deploy">✨ On Deploy (When Cast)</option>
                 <option value="reaction_defense">🛡️ Intercept Reaction (Out-of-Turn)</option>
-                <option value="passive">⚙️ Passive Effect</option>
               </select>
             </div>
 
@@ -399,20 +611,48 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
             </div>
           </div>
 
+          {/* Pay x Resource Requirement Input if Multi-trigger or Pay selected */}
+          {(builderTrigger === 'tap_pay' || builderTrigger === 'passive_pay') && (
+            <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-600/40 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-amber-300 font-bold text-xs flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  Resource Cost Requirement ("Pay x")
+                </span>
+                <p className="text-[10px] text-zinc-400">
+                  Player must have at least this amount in Spendables; action will be disabled if insufficient.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-zinc-400 text-xs">Pay:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={costCoins}
+                  onChange={e => setCostCoins(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-amber-300 font-bold text-center"
+                />
+                <span className="text-zinc-400 text-xs">Coins</span>
+              </div>
+            </div>
+          )}
+
           {/* Effect Category Tabs */}
           <div>
             <label className="block text-[10px] text-zinc-400 mb-1 uppercase font-semibold">
               3. Effect Category
             </label>
-            <div className="grid grid-cols-3 sm:grid-cols-7 gap-1">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
               {[
-                { id: 'buff', label: 'Stat Buff' },
-                { id: 'skill', label: 'Skill Token' },
-                { id: 'draw', label: 'Draw' },
-                { id: 'siphon', label: 'Siphon' },
-                { id: 'discard', label: 'Discard' },
-                { id: 'spawn', label: 'Spawn Token' },
-                { id: 'defense', label: 'Intercept' }
+                { id: 'tech_token', label: '⚡ +x/+x Tech Token' },
+                { id: 'buff', label: '⚔️ Stat Buff' },
+                { id: 'skill', label: '🎖️ Skill Token' },
+                { id: 'draw', label: '🎴 Draw Cards' },
+                { id: 'siphon', label: '💰 Siphon Coins' },
+                { id: 'discard', label: '🗑️ Discard' },
+                { id: 'spawn', label: '👥 Spawn Token' },
+                { id: 'defense', label: '🛡️ Intercept' }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -432,6 +672,31 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
 
           {/* Category-Specific Configuration */}
           <div className="p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800 space-y-2">
+            {builderEffectCategory === 'tech_token' && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-cyan-300 font-bold flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Tech Token Buff Amount (+x/+x)</span>
+                  </label>
+                  <span className="text-[10px] text-zinc-400">Buffs BOTH Offense and Defense</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={6}
+                    value={techTokenAmount}
+                    onChange={e => setTechTokenAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 bg-zinc-950 border border-cyan-600/60 rounded px-2.5 py-1 text-xs text-cyan-300 font-bold text-center"
+                  />
+                  <span className="text-zinc-300 text-xs">
+                    Grants <strong className="text-cyan-300">+{techTokenAmount}/+{techTokenAmount} Tech token</strong> to target operative.
+                  </span>
+                </div>
+              </div>
+            )}
+
             {builderEffectCategory === 'buff' && (
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -617,15 +882,42 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
           </div>
 
           {/* Mock Scenario State */}
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
             <div className="p-2 rounded bg-zinc-900 border border-zinc-800 space-y-1">
-              <span className="text-zinc-400 font-bold block">Friendly Mock Target:</span>
+              <span className="text-zinc-400 font-bold block">Active Player Resources:</span>
+              <div className="flex items-center gap-1.5">
+                <Coins className="w-3 h-3 text-amber-400" />
+                <span className="text-amber-300 font-bold">{sandboxPlayerSpendables} Spendable Coins</span>
+              </div>
+              <div className="flex items-center gap-1 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSandboxPlayerSpendables(prev => Math.max(0, prev - 1))}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                >
+                  -1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSandboxPlayerSpendables(prev => prev + 1)}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                >
+                  +1
+                </button>
+              </div>
+            </div>
+
+            <div className="p-2 rounded bg-zinc-900 border border-zinc-800 space-y-1">
+              <span className="text-zinc-400 font-bold block">Mock Friendly Operative:</span>
               <div className="text-amber-400">
                 Operative: <strong>{sandboxOpBuff.off} OFF</strong> / <strong>{sandboxOpBuff.def} DEF</strong>
               </div>
-              {sandboxOpBuff.tokens.length > 0 && (
-                <div className="text-emerald-400">
-                  Tokens: {sandboxOpBuff.tokens.join(', ')}
+              <div className="text-[9px]">
+                State: <strong className={sandboxCardExhausted ? 'text-zinc-400' : 'text-emerald-400'}>{sandboxCardExhausted ? 'Exhausted (E)' : 'Ready (R)'}</strong>
+              </div>
+              {sandboxOpBuff.tech > 0 && (
+                <div className="text-cyan-300 font-semibold text-[9px]">
+                  ⚡ Tech Buff: +{sandboxOpBuff.tech}/+{sandboxOpBuff.tech}
                 </div>
               )}
             </div>
@@ -633,7 +925,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
             <div className="p-2 rounded bg-zinc-900 border border-zinc-800 space-y-1">
               <span className="text-zinc-400 font-bold block">Opponent Mock State:</span>
               <div className="text-zinc-300">
-                Hand: <strong>{sandboxOpponentState.hand}</strong> cards | Coins: <strong>{sandboxOpponentState.coins}</strong> | In-Play: <strong>{sandboxOpponentState.inPlay}</strong>
+                Hand: <strong>{sandboxOpponentState.hand}</strong> | Coins: <strong>{sandboxOpponentState.coins}</strong> | Field: <strong>{sandboxOpponentState.inPlay}</strong>
               </div>
             </div>
           </div>
@@ -641,7 +933,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
           <button
             type="button"
             onClick={runSandboxTest}
-            className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+            className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow"
           >
             <Play className="w-3.5 h-3.5" />
             <span>Execute Test Simulation</span>
@@ -658,6 +950,203 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Dynamic Keyword Registry & Custom Keyword Creator */}
+      {activeTab === 'keywords' && (
+        <div className="p-3 space-y-3 font-mono">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Dynamic Keyword Registry</span>
+              </h4>
+              <p className="text-[10px] text-zinc-400">
+                Inspect built-in engine keywords or define your own dynamic keywords.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowNewKeywordModal(true)}
+              className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[11px] flex items-center gap-1 transition-colors"
+            >
+              <PlusCircle className="w-3 h-3" />
+              <span>Define Keyword</span>
+            </button>
+          </div>
+
+          {/* Category Filter Tabs */}
+          <div className="flex items-center gap-1 flex-wrap text-[10px]">
+            {(['all', 'trigger', 'cost', 'token', 'effect', 'modifier'] as const).map(cat => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedKwCategory(cat)}
+                className={`px-2 py-0.5 rounded capitalize transition-colors ${
+                  selectedKwCategory === cat
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-bold'
+                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* Keyword Grid / List */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+            {filteredKeywords.map(kw => (
+              <div
+                key={kw.id}
+                className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 space-y-1 hover:border-zinc-700 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-amber-300 text-xs">{kw.keyword}</span>
+                    <span className="text-[9px] uppercase px-1 rounded bg-zinc-800 text-zinc-400">
+                      {kw.category}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const phrase = keywordRegistry.generatePhrase(kw, chipParamX);
+                        handleInsertKeyword(phrase);
+                        setActiveTab('syntax');
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 text-zinc-300 text-[9px] transition-colors"
+                      title="Insert into syntax text"
+                    >
+                      Insert
+                    </button>
+                    {!kw.isBuiltIn && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomKeyword(kw.id)}
+                        className="p-0.5 rounded text-zinc-500 hover:text-rose-400 transition-colors"
+                        title="Delete custom keyword"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-zinc-300 font-mono bg-zinc-950/70 px-1.5 py-0.5 rounded border border-zinc-800/80">
+                  {kw.syntaxTemplate}
+                </div>
+                <p className="text-[9px] text-zinc-400 leading-tight">
+                  {kw.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Define Custom Keyword */}
+      {showNewKeywordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-cyan-500/50 rounded-xl p-4 max-w-md w-full space-y-3 font-mono shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+              <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4" />
+                <span>Define New Dynamic Keyword</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowNewKeywordModal(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div>
+                <label className="block text-[10px] text-zinc-400 mb-0.5">Keyword Name (e.g. Overdrive x)</label>
+                <input
+                  type="text"
+                  value={newKwKeyword}
+                  onChange={e => setNewKwKeyword(e.target.value)}
+                  placeholder="e.g. Overdrive x"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-0.5">Category</label>
+                  <select
+                    value={newKwCategory}
+                    onChange={e => setNewKwCategory(e.target.value as any)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-white"
+                  >
+                    <option value="trigger">Trigger</option>
+                    <option value="cost">Cost</option>
+                    <option value="token">Token</option>
+                    <option value="effect">Effect</option>
+                    <option value="modifier">Modifier</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-0.5">Parameter Type</label>
+                  <select
+                    value={newKwParamType}
+                    onChange={e => setNewKwParamType(e.target.value as any)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-white"
+                  >
+                    <option value="number">Number {'({x})'}</option>
+                    <option value="none">None (Static)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-zinc-400 mb-0.5">Syntax Template (use {'{x}'} for number)</label>
+                <input
+                  type="text"
+                  value={newKwTemplate}
+                  onChange={e => setNewKwTemplate(e.target.value)}
+                  placeholder="e.g. Overdrive {x}: or +{x} Stealth"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-zinc-400 mb-0.5">Description</label>
+                <input
+                  type="text"
+                  value={newKwDesc}
+                  onChange={e => setNewKwDesc(e.target.value)}
+                  placeholder="What does this keyword do in the game?"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowNewKeywordModal(false)}
+                className="px-3 py-1 rounded bg-zinc-800 text-zinc-300 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateCustomKeyword}
+                disabled={!newKwKeyword.trim() || !newKwTemplate.trim()}
+                className="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold text-xs"
+              >
+                Save Keyword
+              </button>
+            </div>
           </div>
         </div>
       )}

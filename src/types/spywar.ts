@@ -22,6 +22,7 @@ export interface Card {
   // Modifiers
   tempOffenseBuff?: number;
   tempDefenseBuff?: number;
+  techTokens?: number; // +x/+x Tech token bonus (buffs both OFF and DEF)
   // Abilities
   specialAbility?: string;
   abilityText?: string;

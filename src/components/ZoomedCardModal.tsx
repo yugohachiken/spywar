@@ -285,9 +285,9 @@ export const ZoomedCardModal: React.FC = () => {
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-red-300 font-semibold">Offense</div>
                     <div className="text-2xl sm:text-3xl font-extrabold text-red-200">
-                      {(card.off || 0) + (card.tempOffenseBuff || 0)}
-                      {card.tempOffenseBuff ? (
-                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{card.tempOffenseBuff}</span>
+                      {(card.off || 0) + (card.tempOffenseBuff || 0) + (card.techTokens || 0)}
+                      {(card.tempOffenseBuff || 0) + (card.techTokens || 0) > 0 ? (
+                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
                       ) : null}
                     </div>
                   </div>
@@ -297,9 +297,9 @@ export const ZoomedCardModal: React.FC = () => {
                   <div className="text-right">
                     <div className="text-[11px] uppercase tracking-wider text-blue-300 font-semibold">Defense</div>
                     <div className="text-2xl sm:text-3xl font-extrabold text-blue-200">
-                      {(card.def || 0) + (card.tempDefenseBuff || 0)}
-                      {card.tempDefenseBuff ? (
-                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{card.tempDefenseBuff}</span>
+                      {(card.def || 0) + (card.tempDefenseBuff || 0) + (card.techTokens || 0)}
+                      {(card.tempDefenseBuff || 0) + (card.techTokens || 0) > 0 ? (
+                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
                       ) : null}
                     </div>
                   </div>
@@ -310,9 +310,15 @@ export const ZoomedCardModal: React.FC = () => {
               </div>
             )}
 
-            {/* Espionage Specialized Skills Badges */}
+            {/* Espionage Specialized Skills Badges & Tech Tokens */}
             {card?.type === 'Operative' && (
               <div className="flex flex-wrap items-center gap-2 mb-4">
+                {(card.techTokens || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950 text-cyan-300 border-2 border-cyan-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span>Tech Token +{card.techTokens}/+{card.techTokens}</span>
+                  </div>
+                )}
                 {(card.ass || 0) > 0 && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950 text-rose-300 border-2 border-rose-700/60 font-mono font-bold text-xs sm:text-sm">
                     <Skull className="w-4 h-4 text-rose-400" />

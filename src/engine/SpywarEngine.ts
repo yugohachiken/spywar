@@ -553,24 +553,33 @@ export class SpywarEngine {
       }
     }
 
-    // Hand limit enforcement (Rule 2.2: maximum hand limit from maxHandSize)
-    if (player.isAI && player.hand.length > this.config.maxHandSize) {
-      const discardedCards: string[] = [];
-      while (player.hand.length > this.config.maxHandSize) {
-        // AI discards the most expensive or unplayable card to return to maxHandSize
-        const discarded = player.hand.pop()!;
-        player.discard_pile.push(discarded);
-        discardedCards.push(discarded.name);
-        player.telemetry.discardedCardFromHandThisTurn = true;
-      }
-      this.log(player.pid, 'HAND-LIMIT', `AI hand exceeded ${this.config.maxHandSize} cards. Discarded: [${discardedCards.join(', ')}].`);
+    // Hand limit enforcement:
+    // Players are allowed to draw cards even if this will exceed maximum hand size.
+    // AI discards down to maxHandSize automatically, while human players must discard excess cards of choice.
+    if (player.isAI) {
+      this.enforceHandLimitForAI(player);
     }
 
     if (player.hand.length <= this.config.maxHandSize) {
       this.currentPhase = 'OPERATIONS';
+    } else {
+      this.currentPhase = 'DRAW';
     }
 
-    this.log(player.pid, 'TURN-START', `Turn began for ${player.name} (${player.pid}). [DRAW PHASE] Refreshed cards to Ready (R). Drew: [${drawn.join(', ') || 'None'}]. Hand: ${player.hand.length}/${this.config.maxHandSize}. Transitioning to [${this.currentPhase} PHASE].`);
+    this.log(player.pid, 'TURN-START', `Turn began for ${player.name} (${player.pid}). [DRAW PHASE] Refreshed cards to Ready (R). Drew: [${drawn.join(', ') || 'None'}]. Hand: ${player.hand.length}/${this.config.maxHandSize}. ${player.hand.length > this.config.maxHandSize ? `[Hand Limit Exceeded: Must discard ${player.hand.length - this.config.maxHandSize} excess card(s) before playing further]` : `Transitioning to [${this.currentPhase} PHASE].`}`);
+  }
+
+  enforceHandLimitForAI(player: Player) {
+    if (!player.isAI || player.hand.length <= this.config.maxHandSize) return;
+    const discardedCards: string[] = [];
+    while (player.hand.length > this.config.maxHandSize) {
+      // AI discards the most expensive or unplayable card to return to maxHandSize
+      const discarded = player.hand.pop()!;
+      player.discard_pile.push(discarded);
+      discardedCards.push(discarded.name);
+      player.telemetry.discardedCardFromHandThisTurn = true;
+    }
+    this.log(player.pid, 'HAND-LIMIT', `AI hand exceeded ${this.config.maxHandSize} cards. Discarded: [${discardedCards.join(', ')}].`);
   }
 
   endPlayerTurn() {
@@ -705,19 +714,23 @@ export class SpywarEngine {
     const actions: Action[] = [];
     if (this.gameOver) return actions;
 
-    // Rule 2.2: DRAW Phase hand limit constraint (maximum 5 cards)
-    if (this.currentPhase === 'DRAW' && player.hand.length > 5) {
-      const cardsToConsider = selectedCard ? [selectedCard] : player.hand;
+    // Rule modification: Hand limit enforcement
+    // Players are allowed to draw 1 or more cards even if this will exceed the maximum hand size.
+    // But they must first discard excess card(s) of their choice before they are allowed to play further.
+    if (player.hand.length > this.config.maxHandSize) {
+      const excessCount = player.hand.length - this.config.maxHandSize;
+      const cardsToConsider = selectedCard
+        ? (player.hand.some(c => c.id === selectedCard.id) ? [selectedCard] : [])
+        : player.hand;
+
       for (const card of cardsToConsider) {
-        if (player.hand.some(c => c.id === card.id)) {
-          actions.push({
-            type: 'DISCARD_CARD',
-            cardId: card.id,
-            cardName: card.name,
-            card,
-            desc: `Discard ${card.name} to Discard Pile (Hand Limit: ${player.hand.length}/5)`
-          });
-        }
+        actions.push({
+          type: 'DISCARD_CARD',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          desc: `Discard ${card.name} (Must discard ${excessCount} excess card${excessCount > 1 ? 's' : ''} of choice before playing further. Hand: ${player.hand.length}/${this.config.maxHandSize})`
+        });
       }
       return actions;
     }
@@ -741,17 +754,6 @@ export class SpywarEngine {
       // 3.1.1: Cards in Hand
       const isInHand = player.hand.some(c => c.id === selectedCard.id);
       if (isInHand) {
-        // Hand limit rule (Rule 2.2): If hand > maxHandSize cards, allow discarding
-        if (player.hand.length > this.config.maxHandSize) {
-          actions.push({
-            type: 'DISCARD_CARD',
-            cardId: selectedCard.id,
-            cardName: selectedCard.name,
-            card: selectedCard,
-            desc: `Discard ${selectedCard.name} to Discard Pile (Hand Limit: ${player.hand.length}/${this.config.maxHandSize})`
-          });
-        }
-
         // Deploy action
         let cost = selectedCard.cost;
         if (player.affiliation?.specialAbility === 'play_operative' && selectedCard.type === 'Operative') {
@@ -1449,15 +1451,17 @@ export class SpywarEngine {
 
     // Default / AI path (selectedCard is null/undefined): Full legal action set
     if (player.hand.length > this.config.maxHandSize) {
+      const excess = player.hand.length - this.config.maxHandSize;
       for (const card of player.hand) {
         actions.push({
           type: 'DISCARD_CARD',
           cardId: card.id,
           cardName: card.name,
           card,
-          desc: `Discard ${card.name} (Hand Limit: ${player.hand.length}/${this.config.maxHandSize})`
+          desc: `Discard ${card.name} (Must discard ${excess} excess card${excess > 1 ? 's' : ''} of choice before playing further. Hand: ${player.hand.length}/${this.config.maxHandSize})`
         });
       }
+      return actions;
     }
 
     // 1. Affiliation
@@ -2127,6 +2131,17 @@ export class SpywarEngine {
     defenderCardIds?: string[],
     bonusDefense: number = 0
   ): { success: boolean; thwarted?: boolean; message: string; defendersUsed?: Card[]; totalDef?: number } {
+    // Hand limit enforcement rule:
+    // Players are allowed to draw cards even if this exceeds maxHandSize, but they MUST first
+    // discard excess card(s) of their choice before they are allowed to play further.
+    if (player.hand.length > this.config.maxHandSize && action.type !== 'DISCARD_CARD') {
+      const excess = player.hand.length - this.config.maxHandSize;
+      return {
+        success: false,
+        message: `Hand limit exceeded (${player.hand.length}/${this.config.maxHandSize}). You must first discard ${excess} excess card${excess > 1 ? 's' : ''} of your choice before playing further.`
+      };
+    }
+
     if (action.type === 'PASS') {
       this.endPlayerTurn();
       return { success: true, message: 'Operations concluded. Turn ended.' };
@@ -2142,18 +2157,34 @@ export class SpywarEngine {
     }
 
     if (action.type === 'DISCARD_CARD') {
-      const card = action.card!;
+      const card = action.card || player.hand.find(c => c.id === action.cardId);
+      if (!card) {
+        return { success: false, message: 'Card not found in hand.' };
+      }
       const idx = player.hand.findIndex(c => c.id === card.id);
       if (idx !== -1) {
         player.hand.splice(idx, 1);
         player.discard_pile.push(card);
         player.telemetry.discardedCardFromHandThisTurn = true;
-        this.log(player.pid, 'DISCARD', `Discarded '${card.name}' from hand to discard pile.`);
-        if (player.hand.length <= 5 && this.currentPhase === 'DRAW') {
-          this.currentPhase = 'OPERATIONS';
-          this.log(player.pid, 'PHASE', `Hand size within limit (5). Transitioned to OPERATIONS Phase.`);
+        this.log(player.pid, 'DISCARD', `Discarded '${card.name}' from hand to discard pile. Hand: ${player.hand.length}/${this.config.maxHandSize}.`);
+        if (player.hand.length <= this.config.maxHandSize) {
+          if (this.currentPhase === 'DRAW') {
+            this.currentPhase = 'OPERATIONS';
+            this.log(player.pid, 'PHASE', `Hand size within limit (${player.hand.length}/${this.config.maxHandSize}). Transitioned to OPERATIONS Phase.`);
+          } else {
+            this.log(player.pid, 'HAND-LIMIT', `Hand size within limit (${player.hand.length}/${this.config.maxHandSize}). Player may now take operations.`);
+          }
+          return {
+            success: true,
+            message: `Discarded ${card.name}. Hand size is now within limit (${player.hand.length}/${this.config.maxHandSize}). You may now take actions.`
+          };
+        } else {
+          const remainingExcess = player.hand.length - this.config.maxHandSize;
+          return {
+            success: true,
+            message: `Discarded ${card.name}. You must discard ${remainingExcess} more excess card${remainingExcess > 1 ? 's' : ''} (Hand: ${player.hand.length}/${this.config.maxHandSize}).`
+          };
         }
-        return { success: true, message: `Discarded ${card.name}.` };
       }
       return { success: false, message: 'Card not found in hand.' };
     }
@@ -2192,13 +2223,20 @@ export class SpywarEngine {
       }
 
       if (card.specialAbility === 'draw' || card.specialAbility === 'draw_card') {
-        if (this.drawDeck.length > 0 && player.hand.length < this.config.maxHandSize) {
+        if (this.drawDeck.length > 0) {
           const drawn = this.drawDeck.pop()!;
           player.hand.push(drawn);
           this.recordCardDrawn(drawn);
-          this.log(player.pid, 'LOC-ABILITY', `${card.name} tapped: Drew '${drawn.name}'.`);
-          return { success: true, message: `Drew ${drawn.name}.` };
+          if (player.isAI) {
+            this.enforceHandLimitForAI(player);
+          }
+          this.log(player.pid, 'LOC-ABILITY', `${card.name} tapped: Drew '${drawn.name}'. Hand: ${player.hand.length}/${this.config.maxHandSize}.`);
+          const notice = player.hand.length > this.config.maxHandSize
+            ? ` (Hand limit exceeded: ${player.hand.length}/${this.config.maxHandSize}. Must discard ${player.hand.length - this.config.maxHandSize} excess card(s) of choice before taking further actions.)`
+            : '';
+          return { success: true, message: `Drew ${drawn.name}.${notice}` };
         }
+        return { success: false, message: 'Draw deck is empty.' };
       }
 
       if (card.specialAbility === 'armory_buff' || card.specialAbility === 'buff_off_or_def') {
@@ -2288,18 +2326,24 @@ export class SpywarEngine {
         const count = effect.amount || 1;
         const drawnCards: string[] = [];
         for (let i = 0; i < count; i++) {
-          if (this.drawDeck.length > 0 && player.hand.length < this.config.maxHandSize) {
+          if (this.drawDeck.length > 0) {
             const drawn = this.drawDeck.pop()!;
             player.hand.push(drawn);
             this.recordCardDrawn(drawn);
             drawnCards.push(drawn.name);
           }
         }
-        if (drawnCards.length > 0) {
-          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} drew ${drawnCards.length} card(s): ${drawnCards.join(', ')}.`);
-          return { success: true, message: `Drew ${drawnCards.join(', ')}.` };
+        if (player.isAI) {
+          this.enforceHandLimitForAI(player);
         }
-        return { success: false, message: 'Draw deck empty or hand size full.' };
+        if (drawnCards.length > 0) {
+          const notice = player.hand.length > this.config.maxHandSize
+            ? ` (Hand limit exceeded: ${player.hand.length}/${this.config.maxHandSize}. Must discard ${player.hand.length - this.config.maxHandSize} excess card(s) of choice before taking further actions.)`
+            : '';
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} drew ${drawnCards.length} card(s): ${drawnCards.join(', ')}. Hand: ${player.hand.length}/${this.config.maxHandSize}.`);
+          return { success: true, message: `Drew ${drawnCards.join(', ')}.${notice}` };
+        }
+        return { success: false, message: 'Draw deck is empty.' };
       }
 
       if (effect.type === 'siphon') {

@@ -1268,14 +1268,41 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
         {/* Player Hand Cards */}
         <div className="border-t border-zinc-800 pt-2">
+          {bottomPlayer.hand.length > engine.config.maxHandSize && (
+            <div className="mb-2 p-2.5 rounded-lg bg-rose-950/80 border border-rose-500/80 text-rose-200 text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <div>
+                  <span className="font-bold text-white">Hand Limit Exceeded ({bottomPlayer.hand.length} / {engine.config.maxHandSize})</span>
+                  <span className="ml-1 text-rose-300">
+                    — You must discard {bottomPlayer.hand.length - engine.config.maxHandSize} excess card{bottomPlayer.hand.length - engine.config.maxHandSize > 1 ? 's' : ''} of your choice before taking further actions.
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono bg-rose-900/90 text-rose-200 px-2 py-0.5 rounded border border-rose-700/60 shrink-0">
+                Click Discard Card
+              </span>
+            </div>
+          )}
+
           <div className="text-[11px] font-mono text-zinc-400 mb-1 flex items-center justify-between">
-            <span>Hand ({bottomPlayer.hand.length} / {engine.config.maxHandSize}):</span>
+            <span className={bottomPlayer.hand.length > engine.config.maxHandSize ? 'text-rose-400 font-bold' : ''}>
+              Hand ({bottomPlayer.hand.length} / {engine.config.maxHandSize}):
+              {bottomPlayer.hand.length > engine.config.maxHandSize && (
+                <span className="ml-2 text-[10px] bg-rose-900/80 text-rose-300 border border-rose-700/60 px-1.5 py-0.5 rounded font-normal">
+                  Discard {bottomPlayer.hand.length - engine.config.maxHandSize} Excess
+                </span>
+              )}
+            </span>
             <span className="text-[10px] text-zinc-500">
-              {isOnline && !isMyTurn ? 'Viewing cards (Opponent turn in progress)' : 'Click card or action below to execute'}
+              {bottomPlayer.hand.length > engine.config.maxHandSize
+                ? 'Discard excess card(s) to continue operations'
+                : isOnline && !isMyTurn ? 'Viewing cards (Opponent turn in progress)' : 'Click card or action below to execute'}
             </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             {bottomPlayer.hand.map(card => {
+              const mustDiscardExcess = bottomPlayer.hand.length > engine.config.maxHandSize;
               const effCost = bottomPlayer.affiliation?.specialAbility === 'play_operative' && card.type === 'Operative'
                 ? Math.max(0, card.cost - 1)
                 : card.cost;
@@ -1284,10 +1311,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
-                  isPlayable={isAffordable && (!isOnline || isMyTurn)}
+                  isPlayable={!mustDiscardExcess && isAffordable && (!isOnline || isMyTurn)}
                   onPlay={() => {
                     const act = legalActions.find(a => a.type === 'PLAY_CARD' && a.cardId === card.id);
                     if (act) handleAction(act);
+                  }}
+                  isDiscardable={mustDiscardExcess && (!isOnline || isMyTurn)}
+                  onDiscard={() => {
+                    const act = legalActions.find(a => a.type === 'DISCARD_CARD' && a.cardId === card.id) || {
+                      type: 'DISCARD_CARD',
+                      cardId: card.id,
+                      cardName: card.name,
+                      card,
+                      desc: `Discard ${card.name} to Discard Pile`
+                    };
+                    handleAction(act);
                   }}
                   selected={selectedCard?.id === card.id}
                   onClick={() => {

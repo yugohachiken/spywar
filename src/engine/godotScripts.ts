@@ -348,15 +348,15 @@ func start_turn(player_idx: int) -> void:
 			start_prod += loc.production
 	player.current_turn_coins += start_prod
 	
-	# Mandatory Card Draw
+	# Mandatory Card Draw (Players are allowed to draw cards exceeding max_hand_size; excess must be discarded before playing further)
 	var drawn_names: Array[String] = []
 	for i in range(cards_drawn_per_turn):
-		if player.hand.size() < max_hand_size and not draw_deck.is_empty():
+		if not draw_deck.is_empty():
 			var card = draw_deck.pop_back()
 			player.hand.append(card)
 			drawn_names.append(card.card_name)
 			
-	_log(player, "TURN-START", "Round %d turn began. Produced +%d floating coins. Drew: %s" % [current_round, start_prod, str(drawn_names)])
+	_log(player, "TURN-START", "Round %d turn began. Produced +%d floating coins. Drew: %s. Hand size: %d/%d." % [current_round, start_prod, str(drawn_names), player.hand.size(), max_hand_size])
 	state_updated.emit()
 
 func end_turn() -> void:
@@ -487,11 +487,11 @@ func execute_action(action_dict: Dictionary) -> bool:
 							mission_manager.add_mission_tokens(player, "hand_wipe", 1)
 				
 				CardData.SpecialAbility.LOC_RESEARCH_DRAW, CardData.SpecialAbility.AFF_IMF_DRAW:
-					# Research Facility: Tap to draw a card
-					if player.hand.size() < max_hand_size and not draw_deck.is_empty():
+					# Research Facility: Tap to draw a card (allows drawing exceeding max_hand_size)
+					if not draw_deck.is_empty():
 						var drawn = draw_deck.pop_back()
 						player.hand.append(drawn)
-						_log(player, "RESEARCH-DRAW", "%s tapped: Drew %s." % [card.card_name, drawn.card_name])
+						_log(player, "RESEARCH-DRAW", "%s tapped: Drew %s. Hand size: %d/%d." % [card.card_name, drawn.card_name, player.hand.size(), max_hand_size])
 				
 				CardData.SpecialAbility.AFF_SHADOW_SPAWN_TOKEN:
 					var token = CardData.new()

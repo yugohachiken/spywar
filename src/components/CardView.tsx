@@ -7,6 +7,8 @@ interface CardViewProps {
   card: Card;
   isPlayable?: boolean;
   onPlay?: () => void;
+  isDiscardable?: boolean;
+  onDiscard?: () => void;
   onClick?: (e?: React.MouseEvent) => void;
   selected?: boolean;
   selectionRole?: 'attacker' | 'defender' | 'target';
@@ -18,6 +20,8 @@ export const CardView: React.FC<CardViewProps> = ({
   card,
   isPlayable = false,
   onPlay,
+  isDiscardable = false,
+  onDiscard,
   onClick,
   selected = false,
   selectionRole,
@@ -216,6 +220,19 @@ export const CardView: React.FC<CardViewProps> = ({
           className="mt-1 w-full py-1 text-[11px] font-semibold font-mono rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
         >
           Deploy ({card.cost})
+        </button>
+      )}
+
+      {/* Discard Excess Card Button */}
+      {isDiscardable && onDiscard && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDiscard();
+          }}
+          className="mt-1 w-full py-1 text-[11px] font-semibold font-mono rounded bg-rose-600 hover:bg-rose-500 text-white transition-colors shadow-sm"
+        >
+          Discard Card
         </button>
       )}
     </div>

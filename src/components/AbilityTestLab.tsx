@@ -253,6 +253,22 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
     addTestLog(res.message);
   };
 
+  const testDiscardFirstCard = () => {
+    if (p1.hand.length === 0) {
+      addTestLog("Hand is empty, cannot discard.");
+      return;
+    }
+    const card = p1.hand[0];
+    const res = engine.executeAction(p1, p2, {
+      type: 'DISCARD_CARD',
+      cardId: card.id,
+      cardName: card.name,
+      card,
+      desc: `Discard ${card.name}`
+    });
+    addTestLog(res.message);
+  };
+
   // Defensive Intercept Simulation
   const simulateAttackWithDefense = (threatType: 'raid' | 'ass' | 'sub', defenderReady: boolean) => {
     // Setup defender operative on P2
@@ -699,12 +715,21 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
               Your Hand: <span className="font-mono text-emerald-400 font-bold">{p1.hand.length} / {engine.config.maxHandSize}</span> | Deck: <span className="font-mono text-zinc-400">{engine.drawDeck.length} cards</span>
             </div>
 
-            <button
-              onClick={testResearchFacility}
-              className="w-full py-2 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
-            >
-              Tap Research Facility &rarr; Draw 1 Card
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={testResearchFacility}
+                className="w-full py-2 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+              >
+                Tap Facility &rarr; Draw 1 Card
+              </button>
+              <button
+                onClick={testDiscardFirstCard}
+                disabled={p1.hand.length === 0}
+                className="w-full py-2 rounded-lg text-xs font-medium bg-rose-700 hover:bg-rose-600 text-white transition-colors disabled:opacity-50"
+              >
+                Discard 1st Card in Hand {p1.hand.length > engine.config.maxHandSize ? `(${p1.hand.length - engine.config.maxHandSize} excess)` : ''}
+              </button>
+            </div>
           </div>
         </div>
       )}

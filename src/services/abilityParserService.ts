@@ -11,7 +11,9 @@ export type AbilityTriggerType =
   | 'deploy' 
   | 'reaction_defense' 
   | 'pay_coins'
-  | 'passive';
+  | 'passive'
+  | 'interrupt'
+  | 'intercept';
 
 export type AbilityTargetType = 
   | 'friendly_op' 
@@ -31,7 +33,9 @@ export type AtomicEffectType =
   | 'spawn_token'
   | 'intercept_defense'
   | 'produce_coins'
-  | 'choice';
+  | 'choice'
+  | 'deploy_card'
+  | 'exhaust_card';
 
 export interface AtomicEffect {
   type: AtomicEffectType;
@@ -43,6 +47,12 @@ export interface AtomicEffect {
   tokenName?: string;
   tokenOff?: number;
   tokenDef?: number;
+  // For Deploy x card_type and Deploy any x keywords
+  deployCardType?: 'Operative' | 'Location' | 'Support' | 'any';
+  deployCount?: number;
+  // For Exhaust keyword
+  exhaustTargetType?: 'card' | 'operative' | 'location';
+  exhaustCount?: number;
   // For modal choice (e.g. "+1 OFF or +1 DEF" or "Discard 1 from hand OR 2 in play")
   choices?: AtomicEffect[];
   choiceLabels?: string[];
@@ -56,6 +66,9 @@ export interface ParsedAbilityDefinition {
   requiresTap?: boolean;
   isPassive?: boolean; // Card does not Exhaust when using Special Ability
   requiresSacrifice?: boolean;
+  isInterrupt?: boolean; // Can be played anytime, out of player's turn, even when not being attacked
+  isIntercept?: boolean; // Can be deployed or use special ability out of turn when attacked with special ability or operation
+  discardAtEndOfTurn?: boolean; // Automatically discarded at the end of the player's turn
   costCoins?: number;
   targetType: AbilityTargetType;
   effects: AtomicEffect[];
@@ -114,17 +127,32 @@ export class AbilityParserService {
     let requiresTap = false;
     let isPassive = false;
     let requiresSacrifice = false;
+    let isInterrupt = false;
+    let isIntercept = false;
+    let discardAtEndOfTurn = false;
     let trigger: AbilityTriggerType = 'tap';
 
     const hasPassiveKeyword = lower.includes('passive');
-    const hasTapKeyword = lower.includes('tap') || lower.includes('exhaust');
+    const hasTapKeyword = lower.startsWith('tap') || lower.includes('tap:') || lower.includes('tap,') || lower.match(/\btap\b/i);
     const hasSacrificeKeyword = lower.includes('sacrifice') || lower.includes('discard while in play');
     const hasDeployKeyword = lower.includes('when deployed') || lower.includes('on deploy') || lower.includes('on play') || lower.includes('enter the battlefield');
-    const hasReactionKeyword = lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction');
+    const hasInterruptKeyword = lower.includes('interrupt');
+    const hasInterceptKeyword = lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction');
+    const hasDiscardEndTurn = lower.includes('discard at end of turn') || lower.includes('discard at the end of turn') || lower.includes('discard at end of your turn') || lower.includes('discard at end of player\'s turn') || lower.includes('discard at the end of the player\'s turn');
 
-    if (hasReactionKeyword) {
-      trigger = 'reaction_defense';
-      recognizedKeywords.push('Reaction / Intercept');
+    if (hasDiscardEndTurn) {
+      discardAtEndOfTurn = true;
+      recognizedKeywords.push('Discard at end of turn');
+    }
+
+    if (hasInterruptKeyword) {
+      isInterrupt = true;
+      trigger = 'interrupt';
+      recognizedKeywords.push('Interrupt (Play Anytime Out-of-Turn)');
+    } else if (hasInterceptKeyword) {
+      isIntercept = true;
+      trigger = 'intercept';
+      recognizedKeywords.push('Intercept (Play/Use Out-of-Turn When Attacked)');
     } else if (hasSacrificeKeyword) {
       trigger = 'sacrifice';
       requiresSacrifice = true;
@@ -150,7 +178,7 @@ export class AbilityParserService {
       trigger = 'tap';
       requiresTap = true;
       isPassive = false;
-      recognizedKeywords.push('Tap / Exhaust');
+      recognizedKeywords.push('Tap');
       if (costCoins > 0) {
         recognizedKeywords.push(`Multi-Trigger: Tap + Pay ${costCoins}`);
       }
@@ -163,6 +191,8 @@ export class AbilityParserService {
       trigger = presetConfig.trigger;
       if (trigger === 'passive') isPassive = true;
       if (trigger === 'tap') requiresTap = true;
+      if (trigger === 'interrupt') isInterrupt = true;
+      if (trigger === 'intercept') isIntercept = true;
     } else {
       trigger = 'tap';
       requiresTap = true;
@@ -364,7 +394,93 @@ export class AbilityParserService {
       effects.push({ type: 'produce_coins', amount: amt });
     }
 
-    // K. Scan registered custom keywords
+    // K. Deploy Card ("Deploy x card_type" or "Deploy any x" / "Deploy to deploy x card from hand")
+    const parseNum = (val?: string): number => {
+      if (!val) return 1;
+      const v = val.toLowerCase().trim();
+      if (v === 'a' || v === 'an' || v === 'one') return 1;
+      if (v === 'two') return 2;
+      if (v === 'three') return 3;
+      const n = parseInt(v, 10);
+      return isNaN(n) ? 1 : n;
+    };
+
+    const deployOpMatch = lower.match(/(?:deploy|put\s+into\s+play)\s+(?:to\s+deploy\s+)?([0-9]+|a|an|one|two|three)?\s*(?:card[s]?)?\s*(?:of\s*)?(?:an?\s*)?operative[s]?/i)
+      || lower.match(/deploy\s+([0-9]+|a|an|one|two|three)?\s*operative[s]?/i);
+
+    const deployLocMatch = lower.match(/(?:deploy|put\s+into\s+play)\s+(?:to\s+deploy\s+)?([0-9]+|a|an|one|two|three)?\s*(?:card[s]?)?\s*(?:of\s*)?(?:an?\s*)?location[s]?/i)
+      || lower.match(/deploy\s+([0-9]+|a|an|one|two|three)?\s*location[s]?/i);
+
+    const deploySupMatch = lower.match(/(?:deploy|put\s+into\s+play)\s+(?:to\s+deploy\s+)?([0-9]+|a|an|one|two|three)?\s*(?:card[s]?)?\s*(?:of\s*)?(?:an?\s*)?support[s]?/i)
+      || lower.match(/deploy\s+([0-9]+|a|an|one|two|three)?\s*support[s]?/i);
+
+    const deployAnyMatch = lower.match(/(?:deploy|put\s+into\s+play)\s+(?:to\s+deploy\s+)?any\s*([0-9]+|a|an|one|two|three)?\s*(?:card[s]?)?/i)
+      || lower.match(/deploy\s+to\s+deploy\s*([0-9]+|a|an|one|two|three)?\s*card[s]?/i)
+      || lower.match(/(?:deploy|put\s+into\s+play)\s*([0-9]+|a|an|one|two|three)?\s*card[s]?\s*(?:of\s*any\s*type\s*)?(?:from\s*(?:your\s*)?hand)/i);
+
+    if (deployOpMatch) {
+      const amt = parseNum(deployOpMatch[1]);
+      recognizedKeywords.push(`Deploy ${amt} Operative Card(s) (Free)`);
+      effects.push({
+        type: 'deploy_card',
+        deployCardType: 'Operative',
+        deployCount: amt,
+        amount: amt,
+        rawPhrase: `Deploy ${amt} Operative card${amt > 1 ? 's' : ''} from hand`
+      });
+    } else if (deployLocMatch) {
+      const amt = parseNum(deployLocMatch[1]);
+      recognizedKeywords.push(`Deploy ${amt} Location Card(s) (Free)`);
+      effects.push({
+        type: 'deploy_card',
+        deployCardType: 'Location',
+        deployCount: amt,
+        amount: amt,
+        rawPhrase: `Deploy ${amt} Location card${amt > 1 ? 's' : ''} from hand`
+      });
+    } else if (deploySupMatch) {
+      const amt = parseNum(deploySupMatch[1]);
+      recognizedKeywords.push(`Deploy ${amt} Support Card(s) (Free)`);
+      effects.push({
+        type: 'deploy_card',
+        deployCardType: 'Support',
+        deployCount: amt,
+        amount: amt,
+        rawPhrase: `Deploy ${amt} Support card${amt > 1 ? 's' : ''} from hand`
+      });
+    } else if (deployAnyMatch) {
+      const amt = parseNum(deployAnyMatch[1]);
+      recognizedKeywords.push(`Deploy Any ${amt} Card(s) (Free)`);
+      effects.push({
+        type: 'deploy_card',
+        deployCardType: 'any',
+        deployCount: amt,
+        amount: amt,
+        rawPhrase: `Deploy any ${amt} card${amt > 1 ? 's' : ''} from hand`
+      });
+    }
+
+    // L. Exhaust Keyword: put one or more of opponent's card to Exhaust condition
+    // Examples: "Tap: Exhaust 1 opponent's card.", "Exhaust 2 opponent operatives", "Exhaust opponent's card"
+    const exhaustMatch = lower.match(/(?:exhaust|put\s+(?:one\s+or\s+more\s+of\s+)?(?:opponent(?:'s)?\s+)?card[s]?\s+to\s+exhaust\s+condition)\s*([0-9]+|a|an|one|two|three)?\s*(?:of\s*)?(?:opponent(?:'s)?|enemy)?\s*(card[s]?|operative[s]?|location[s]?)?/i)
+      || lower.match(/exhaust\s+([0-9]+|a|an|one|two|three)?\s*(?:of\s*)?(?:opponent(?:'s)?|enemy)?\s*(card[s]?|operative[s]?|location[s]?)?/i);
+
+    if (exhaustMatch) {
+      const amt = parseNum(exhaustMatch[1]);
+      const targetWord = (exhaustMatch[2] || 'card').toLowerCase();
+      const exType: 'card' | 'operative' | 'location' = targetWord.includes('op') ? 'operative' : targetWord.includes('loc') ? 'location' : 'card';
+      recognizedKeywords.push(`Exhaust ${amt} Opponent ${exType.charAt(0).toUpperCase() + exType.slice(1)}(s)`);
+      effects.push({
+        type: 'exhaust_card',
+        amount: amt,
+        exhaustCount: amt,
+        exhaustTargetType: exType,
+        rawPhrase: `Exhaust ${amt} opponent's ${exType}${amt > 1 ? 's' : ''}`
+      });
+      targetType = 'opponent';
+    }
+
+    // M. Scan registered custom keywords
     try {
       const allKws = KeywordRegistryService.getInstance().getAllKeywords();
       for (const kw of allKws) {
@@ -376,17 +492,20 @@ export class AbilityParserService {
       // Ignore in non-browser / headless context
     }
 
-    const isValid = effects.length > 0;
-    const canPlayOnDefense = trigger === 'reaction_defense' || lower.includes('on defense') || !!presetConfig?.canPlayOnDefense;
+    const isValid = effects.length > 0 || isInterrupt || isIntercept || discardAtEndOfTurn;
+    const canPlayOnDefense = trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept || lower.includes('on defense') || !!presetConfig?.canPlayOnDefense;
 
     // Generate human-readable summary
-    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense, costCoins, isPassive, requiresTap);
+    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense, costCoins, isPassive, requiresTap, isInterrupt, isIntercept, discardAtEndOfTurn);
 
     return {
       trigger,
       requiresTap,
       isPassive,
       requiresSacrifice,
+      isInterrupt,
+      isIntercept,
+      discardAtEndOfTurn,
       costCoins: costCoins > 0 ? costCoins : undefined,
       targetType,
       effects,
@@ -408,6 +527,7 @@ export class AbilityParserService {
     canPlayOnDefense?: boolean;
     costCoins?: number;
     isPassive?: boolean;
+    discardAtEndOfTurn?: boolean;
   }): string {
     const parts: string[] = [];
     const hasCost = config.costCoins && config.costCoins > 0;
@@ -432,6 +552,12 @@ export class AbilityParserService {
         break;
       case 'reaction_defense':
         parts.push(hasCost ? `Intercept Reaction, ${costStr}:` : 'Intercept Reaction:');
+        break;
+      case 'intercept':
+        parts.push(hasCost ? `Intercept, ${costStr}:` : 'Intercept:');
+        break;
+      case 'interrupt':
+        parts.push(hasCost ? `Interrupt, ${costStr}:` : 'Interrupt:');
         break;
     }
 
@@ -485,18 +611,33 @@ export class AbilityParserService {
         effectPhrases.push(`fortify defense by +${eff.amount || 2} DEF during attack interception`);
       } else if (eff.type === 'produce_coins') {
         effectPhrases.push(`produce +${eff.amount || 1} coins`);
+      } else if (eff.type === 'deploy_card') {
+        const cnt = eff.deployCount || eff.amount || 1;
+        if (eff.deployCardType === 'any' || !eff.deployCardType) {
+          effectPhrases.push(`deploy any ${cnt} card${cnt > 1 ? 's' : ''} from your hand without paying card cost`);
+        } else {
+          effectPhrases.push(`deploy ${cnt} ${eff.deployCardType} card${cnt > 1 ? 's' : ''} from your hand without paying card cost`);
+        }
+      } else if (eff.type === 'exhaust_card') {
+        const cnt = eff.exhaustCount || eff.amount || 1;
+        const targetTypeLabel = eff.exhaustTargetType ? `${eff.exhaustTargetType}` : "card";
+        effectPhrases.push(`exhaust ${cnt} opponent's ${targetTypeLabel}${cnt > 1 ? 's' : ''}`);
       }
     }
 
     const effectStr = effectPhrases.join(', ');
-    if (targetStr && !effectStr.startsWith('Choose one:')) {
+    if (targetStr && !effectStr.startsWith('Choose one:') && !effectStr.startsWith('exhaust')) {
       parts.push(`${targetStr} ${effectStr}.`);
     } else {
       parts.push(`${effectStr}.`);
     }
 
-    if (config.canPlayOnDefense && config.trigger !== 'reaction_defense') {
+    if (config.canPlayOnDefense && config.trigger !== 'reaction_defense' && config.trigger !== 'intercept') {
       parts.push('Can also be played out-of-turn on defense.');
+    }
+
+    if (config.discardAtEndOfTurn) {
+      parts.push('Discard at end of turn.');
     }
 
     return parts.join(' ');
@@ -509,16 +650,23 @@ export class AbilityParserService {
     canPlayOnDefense: boolean,
     costCoins?: number,
     isPassive?: boolean,
-    requiresTap?: boolean
+    requiresTap?: boolean,
+    isInterrupt?: boolean,
+    isIntercept?: boolean,
+    discardAtEndOfTurn?: boolean
   ): string {
-    if (effects.length === 0) {
+    if (effects.length === 0 && !isInterrupt && !isIntercept && !discardAtEndOfTurn) {
       return 'Passive or unmodeled card text.';
     }
 
     const costText = costCoins && costCoins > 0 ? ` + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}` : '';
 
     let triggerLabel = '';
-    if (trigger === 'tap' && costCoins) {
+    if (trigger === 'interrupt' || isInterrupt) {
+      triggerLabel = `⚡ Interrupt (Play Anytime Out-of-Turn)${costText}`;
+    } else if (trigger === 'intercept' || isIntercept) {
+      triggerLabel = `🛡️ Intercept (Play Out-of-Turn When Attacked)${costText}`;
+    } else if (trigger === 'tap' && costCoins) {
       triggerLabel = `⚡💰 Multi-Trigger: Tap + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
     } else if (trigger === 'tap') {
       triggerLabel = '⚡ Tap (In Play)';
@@ -561,9 +709,20 @@ export class AbilityParserService {
       if (e.type === 'discard_field') return `Opponent Discard Field (${e.amount})`;
       if (e.type === 'spawn_token') return `Spawn ${e.tokenName}`;
       if (e.type === 'intercept_defense') return `+${e.amount} DEF Intercept`;
+      if (e.type === 'deploy_card') {
+        const cnt = e.deployCount || e.amount || 1;
+        const target = e.deployCardType === 'any' || !e.deployCardType ? 'Any' : e.deployCardType;
+        return `Deploy ${cnt} ${target} (Free)`;
+      }
+      if (e.type === 'exhaust_card') {
+        const cnt = e.exhaustCount || e.amount || 1;
+        return `Exhaust (${cnt} Opponent Card${cnt > 1 ? 's' : ''})`;
+      }
       return e.type;
     }).join(' + ');
 
-    return `[${triggerLabel}] -> [Target: ${targetLabel}] -> ${effectSummary}`;
+    const endTurnTag = discardAtEndOfTurn ? ' | ⏳ Discard at end of turn' : '';
+
+    return `[${triggerLabel}] -> [Target: ${targetLabel}] -> ${effectSummary || 'Keyword effect'}${endTurnTag}`;
   }
 }

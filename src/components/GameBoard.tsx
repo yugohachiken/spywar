@@ -3,7 +3,7 @@ import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { CombatPlanner, CombatOperationType } from './CombatPlanner';
 import { InlineDefensePanel } from './InlineDefensePanel';
@@ -21,6 +21,7 @@ interface PendingDefenseState {
   attackerNames: string;
   readyOps: Card[];
   selectedDefenderIds: string[];
+  isSpecialAbilityAttack?: boolean;
 }
 
 interface GameBoardProps {
@@ -69,9 +70,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     ? (activePlayer.pid === myPid && multiplayerRoom?.status === 'playing')
     : (!activePlayer.isAI);
 
-  const legalActions = isOnline
+  const myPlayer = isOnline
+    ? bottomPlayer
+    : (activePlayer.isAI ? opponent : activePlayer);
+  const otherPlayer = isOnline
+    ? topPlayer
+    : (activePlayer.isAI ? activePlayer : opponent);
+
+  const interruptActions = engine.getInterruptActions(myPlayer, otherPlayer);
+
+  const baseLegalActions = isOnline
     ? (isMyTurn ? engine.getLegalActions(bottomPlayer, topPlayer, selectedCard) : [])
     : engine.getLegalActions(activePlayer, opponent, selectedCard);
+
+  const legalActions = isMyTurn
+    ? [...baseLegalActions, ...interruptActions.filter(ia => !baseLegalActions.some(ba => ba.cardId === ia.cardId && ba.desc === ia.desc))]
+    : [];
 
   const mctsAgent = useRef(new ISMCTSAgent(engine.config.rounds * 10)).current;
 
@@ -235,12 +249,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     if (action.type === 'OPERATIVE_ACTION') {
       return ['ass', 'sub', 'raid', 'boksoon_ass', 'mata_hari_steal', 'ghost_siphon'].includes(action.opType || '');
     }
+    if (action.type === 'DYNAMIC_ABILITY' && (action.dynamicAbilityEffect?.effect?.type === 'exhaust_card' || action.isSpecialAbilityAttack)) {
+      return true;
+    }
     return false;
   };
 
   const getIncomingAttackInfo = (action: Action) => {
     const attackers = (action.attackerCards && action.attackerCards.length > 0) ? action.attackerCards : (action.card ? [action.card] : []);
     const attackerNames = attackers.map(a => a.name).join(' + ') || 'Attacker';
+    const isSpecialAbilityAttack = action.isSpecialAbilityAttack || action.type === 'DAN_WEAK_SACRIFICE' || action.type === 'DYNAMIC_ABILITY' || ['boksoon_ass', 'mata_hari_steal', 'ghost_siphon'].includes(action.opType || '');
+
+    if (action.type === 'DYNAMIC_ABILITY' && action.dynamicAbilityEffect?.effect?.type === 'exhaust_card') {
+      const target = action.targetCard;
+      const targetName = target ? target.name : 'Card';
+      return {
+        threatType: 'ass' as const,
+        threatName: `Exhaust Special Ability on ${targetName}`,
+        attackPower: 1,
+        attackerNames: action.card?.name || 'Special Ability',
+        isSpecialAbilityAttack: true
+      };
+    }
 
     if (action.type === 'DAN_WEAK_SACRIFICE') {
       const threatType: 'ass' | 'sub' | 'raid' = action.subChoice === 'discard_hand' ? 'sub' : 'ass';
@@ -249,8 +279,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType,
         threatName: threatType === 'ass' ? 'Assassination Sacrifice' : 'Subterfuge Sacrifice',
-        attackPower: (op.off || 4) + skill,
-        attackerNames: op.name
+        attackPower: (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + skill,
+        attackerNames: op.name,
+        isSpecialAbilityAttack
       };
     }
 
@@ -259,8 +290,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'ass' as const,
         threatName: 'Boksoon Targeted Execution',
-        attackPower: (op.off || 4) + (op.ass || 3),
-        attackerNames: op.name
+        attackPower: (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.ass || 3),
+        attackerNames: op.name,
+        isSpecialAbilityAttack
       };
     }
 
@@ -269,8 +301,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'sub' as const,
         threatName: 'Mata Hari Hand Infiltration',
-        attackPower: (op.off || 3) + (op.sub || 3),
-        attackerNames: op.name
+        attackPower: (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.sub || 3),
+        attackerNames: op.name,
+        isSpecialAbilityAttack
       };
     }
 
@@ -279,51 +312,55 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'raid' as const,
         threatName: 'Ghost Resource Siphon',
-        attackPower: (op.off || 3) + (op.raid || 3),
-        attackerNames: op.name
+        attackPower: (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.raid || 3),
+        attackerNames: op.name,
+        isSpecialAbilityAttack
       };
     }
 
     if (action.opType === 'ass') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + (a.techTokens || 0) + (a.ass || 0) + (a.tempOffenseBuff || 0);
       }
       return {
         threatType: 'ass' as const,
         threatName: 'Assassination Strike',
         attackPower: atk,
-        attackerNames
+        attackerNames,
+        isSpecialAbilityAttack
       };
     }
 
     if (action.opType === 'raid') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + (a.techTokens || 0) + (a.raid || 0) + (a.tempOffenseBuff || 0);
       }
       return {
         threatType: 'raid' as const,
         threatName: 'Resource Raid',
         attackPower: atk,
-        attackerNames
+        attackerNames,
+        isSpecialAbilityAttack
       };
     }
 
     if (action.opType === 'sub') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + (a.techTokens || 0) + (a.sub || 0) + (a.tempOffenseBuff || 0);
       }
       return {
         threatType: 'sub' as const,
         threatName: 'Subterfuge Discard',
         attackPower: atk,
-        attackerNames
+        attackerNames,
+        isSpecialAbilityAttack
       };
     }
 
-    return { threatType: 'ass' as const, threatName: 'Attack', attackPower: 1, attackerNames };
+    return { threatType: 'ass' as const, threatName: 'Attack', attackPower: 1, attackerNames, isSpecialAbilityAttack };
   };
 
   const executeAiStep = () => {
@@ -352,7 +389,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               incomingAttack: attackInfo.attackPower,
               attackerNames: attackInfo.attackerNames,
               readyOps,
-              selectedDefenderIds: recommended.map(c => c.id)
+              selectedDefenderIds: recommended.map(c => c.id),
+              isSpecialAbilityAttack: attackInfo.isSpecialAbilityAttack
             });
             return;
           }
@@ -383,7 +421,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       if (!selectedCombatTarget) return;
       let totalOff = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + (a.techTokens || 0) + (a.ass || 0) + (a.tempOffenseBuff || 0);
       }
       action = {
         type: 'OPERATIVE_ACTION',
@@ -402,7 +440,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       let totalOff = 0;
       let totalRaidSkill = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + (a.techTokens || 0) + (a.raid || 0) + (a.tempOffenseBuff || 0);
         totalRaidSkill += (a.raid || 0);
       }
       const target = selectedCombatTarget;
@@ -425,7 +463,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       let totalOff = 0;
       let totalSubSkill = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + (a.techTokens || 0) + (a.sub || 0) + (a.tempOffenseBuff || 0);
         totalSubSkill += (a.sub || 0);
       }
       const potentialDiscards = attackerCards.length + totalSubSkill;
@@ -446,6 +484,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const handleAction = (action: Action) => {
     if (pendingDefense) return;
+
+    if (action.type === 'INTERRUPT_ACTION') {
+      engine.executeAction(myPlayer, otherPlayer, action);
+      if (isOnline && multiplayerRoom) {
+        syncRoomState(
+          multiplayerRoom.roomId,
+          engine,
+          `${myPlayer.name} triggered Interrupt: ${action.desc}`,
+          null
+        );
+      }
+      setSelectedCard(null);
+      onRefresh();
+      return;
+    }
 
     if (isOnline) {
       if (!isMyTurn || !multiplayerRoom) return;
@@ -503,7 +556,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           incomingAttack: attackInfo.attackPower,
           attackerNames: attackInfo.attackerNames,
           readyOps,
-          selectedDefenderIds: recommended.map(c => c.id)
+          selectedDefenderIds: recommended.map(c => c.id),
+          isSpecialAbilityAttack: attackInfo.isSpecialAbilityAttack
         });
         setSelectedCard(null);
         return;
@@ -1285,6 +1339,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             </div>
           )}
 
+          {/* Free Deploy Mode Warning Banner */}
+          {bottomPlayer.pendingFreeDeploys && bottomPlayer.pendingFreeDeploys.count > 0 && (
+            <div className="mb-2 p-2 rounded bg-amber-950/70 border border-amber-500/70 flex items-center justify-between gap-2 shadow-sm animate-pulse">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <div className="text-[11px] font-mono text-amber-200">
+                  <strong>FREE DEPLOY ACTIVE:</strong> Deploy up to {bottomPlayer.pendingFreeDeploys.count} {bottomPlayer.pendingFreeDeploys.cardType === 'any' ? 'card(s) of any type' : `${bottomPlayer.pendingFreeDeploys.cardType} card(s)`} from hand without paying cost ({bottomPlayer.pendingFreeDeploys.sourceCardName}).
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleAction({ type: 'FINISH_FREE_DEPLOY', desc: 'Finish free deployment sequence' })}
+                className="text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-0.5 rounded border border-zinc-600 shrink-0 font-semibold transition-colors"
+              >
+                Skip Remaining
+              </button>
+            </div>
+          )}
+
           <div className="text-[11px] font-mono text-zinc-400 mb-1 flex items-center justify-between">
             <span className={bottomPlayer.hand.length > engine.config.maxHandSize ? 'text-rose-400 font-bold' : ''}>
               Hand ({bottomPlayer.hand.length} / {engine.config.maxHandSize}):
@@ -1297,22 +1370,43 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             <span className="text-[10px] text-zinc-500">
               {bottomPlayer.hand.length > engine.config.maxHandSize
                 ? 'Discard excess card(s) to continue operations'
+                : bottomPlayer.pendingFreeDeploys && bottomPlayer.pendingFreeDeploys.count > 0
+                ? `Free Deploy: Select a card to deploy for 0 coins`
                 : isOnline && !isMyTurn ? 'Viewing cards (Opponent turn in progress)' : 'Click card or action below to execute'}
             </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             {bottomPlayer.hand.map(card => {
               const mustDiscardExcess = bottomPlayer.hand.length > engine.config.maxHandSize;
+              const hasPendingFree = bottomPlayer.pendingFreeDeploys && bottomPlayer.pendingFreeDeploys.count > 0;
+              const isCardTypeMatch = hasPendingFree && (bottomPlayer.pendingFreeDeploys!.cardType === 'any' || card.type === bottomPlayer.pendingFreeDeploys!.cardType);
               const effCost = bottomPlayer.affiliation?.specialAbility === 'play_operative' && card.type === 'Operative'
                 ? Math.max(0, card.cost - 1)
                 : card.cost;
               const isAffordable = effCost <= engine.getTotalSpendableCoins(bottomPlayer);
+
+              const isPlayable = !mustDiscardExcess && (!isOnline || isMyTurn) && (
+                isCardTypeMatch || (!hasPendingFree && isAffordable)
+              );
+
               return (
                 <CardView
                   key={card.id}
                   card={card}
-                  isPlayable={!mustDiscardExcess && isAffordable && (!isOnline || isMyTurn)}
+                  isPlayable={isPlayable}
+                  playLabel={isCardTypeMatch ? 'Deploy (FREE)' : `Deploy (${card.cost})`}
                   onPlay={() => {
+                    if (isCardTypeMatch) {
+                      const freeAct = legalActions.find(a => a.type === 'DEPLOY_FREE_CARD' && a.cardId === card.id) || {
+                        type: 'DEPLOY_FREE_CARD',
+                        cardId: card.id,
+                        cardName: card.name,
+                        card,
+                        desc: `Deploy ${card.name} for FREE`
+                      };
+                      handleAction(freeAct);
+                      return;
+                    }
                     const act = legalActions.find(a => a.type === 'PLAY_CARD' && a.cardId === card.id);
                     if (act) handleAction(act);
                   }}
@@ -1381,6 +1475,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           onConfirmDefense={handleConfirmDefense}
           onDeclineDefense={() => handleConfirmDefense([])}
           isOnlinePeerWaiting={isOnline && pendingDefense.defender.pid !== myPid}
+          isSpecialAbilityAttack={pendingDefense.isSpecialAbilityAttack}
         />
       )}
 

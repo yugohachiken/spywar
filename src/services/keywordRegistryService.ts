@@ -202,6 +202,69 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Tap: spawn a 1/1 Shadow Warrior token.'
+  },
+  {
+    id: 'kw_deploy_card_type',
+    keyword: 'Deploy x card_type',
+    category: 'effect',
+    syntaxTemplate: 'Deploy {x} Operative card(s) from your hand',
+    description: 'Allows the player to put into play 1 or more cards from hand of a particular card type without paying the card cost (Support, Operative, or Location).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Deploy 2 Operative cards from your hand.'
+  },
+  {
+    id: 'kw_deploy_any',
+    keyword: 'Deploy any x',
+    category: 'effect',
+    syntaxTemplate: 'Deploy any {x} card(s) from your hand',
+    description: 'Allows the player to put into play 1 or more cards of any card type from hand without paying the card cost.',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Deploy to deploy 1 card from hand.'
+  },
+  {
+    id: 'kw_exhaust',
+    keyword: 'Exhaust',
+    category: 'effect',
+    syntaxTemplate: 'Exhaust {x} opponent card(s)',
+    description: "Put one or more of opponent's card to Exhaust condition to prevent it from using its resource production or special abilities.",
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: "Tap: Exhaust 1 opponent's card."
+  },
+  {
+    id: 'kw_intercept',
+    keyword: 'Intercept',
+    category: 'trigger',
+    syntaxTemplate: 'Intercept:',
+    description: "Card with Intercept can be deployed or use its special ability out of turn, when attacked with a card's special ability and with an Operation if applicable.",
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Intercept: Fortify defense by +2 DEF against incoming threat or special ability attack.'
+  },
+  {
+    id: 'kw_interrupt',
+    keyword: 'Interrupt',
+    category: 'trigger',
+    syntaxTemplate: 'Interrupt:',
+    description: "A card with an Interrupt can be played anytime, out of player's turn, even when not being attacked.",
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Interrupt: Exhaust 1 opponent card in play.'
+  },
+  {
+    id: 'kw_discard_end_turn',
+    keyword: 'Discard at end of turn',
+    category: 'modifier',
+    syntaxTemplate: 'Discard at end of turn.',
+    description: "Cards with this keyword are automatically discarded at the end of the player's turn.",
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Deploy: +2 OFF to target operative. Discard at end of turn.'
   }
 ];
 

@@ -68,9 +68,14 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   const [chipParamX, setChipParamX] = useState<number>(1);
 
   // Visual Builder State
-  const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense'>('tap');
+  const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense' | 'intercept' | 'interrupt'>('tap');
   const [builderTarget, setBuilderTarget] = useState<AbilityTargetType>('friendly_op');
-  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense'>('buff');
+  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust'>('buff');
+  const [deployTargetType, setDeployTargetType] = useState<'Operative' | 'Location' | 'Support' | 'any'>('Operative');
+  const [deployCount, setDeployCount] = useState<number>(2);
+  const [exhaustCount, setExhaustCount] = useState<number>(1);
+  const [exhaustTargetType, setExhaustTargetType] = useState<'card' | 'operative' | 'location'>('card');
+  const [builderDiscardEndTurn, setBuilderDiscardEndTurn] = useState<boolean>(false);
   const [statType, setStatType] = useState<'off' | 'def' | 'both_choice'>('both_choice');
   const [statAmount, setStatAmount] = useState<number>(1);
   const [techTokenAmount, setTechTokenAmount] = useState<number>(1);
@@ -181,6 +186,20 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         type: 'intercept_defense',
         amount: defenseBonus
       });
+    } else if (builderEffectCategory === 'deploy') {
+      effects.push({
+        type: 'deploy_card',
+        deployCardType: deployTargetType,
+        deployCount: deployCount,
+        amount: deployCount
+      });
+    } else if (builderEffectCategory === 'exhaust') {
+      effects.push({
+        type: 'exhaust_card',
+        amount: exhaustCount,
+        exhaustCount: exhaustCount,
+        exhaustTargetType: exhaustTargetType
+      });
     }
 
     const isTapPay = builderTrigger === 'tap_pay';
@@ -194,11 +213,12 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
 
     const generated = parser.generateStandardizedText({
       trigger: finalTrigger,
-      targetType: builderTarget,
+      targetType: builderEffectCategory === 'exhaust' ? 'opponent' : builderTarget,
       effects,
       costCoins: requiresPay ? Math.max(1, costCoins) : undefined,
       isPassive: isPassiveOnly || isPassivePay,
-      canPlayOnDefense: builderTrigger === 'reaction_defense'
+      canPlayOnDefense: builderTrigger === 'reaction_defense' || builderTrigger === 'intercept',
+      discardAtEndOfTurn: builderDiscardEndTurn
     });
 
     setText(generated);
@@ -309,7 +329,24 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         logs.push(`🛡️ Intercept defense fortified by +${eff.amount || 2} DEF against incoming threat!`);
       } else if (eff.type === 'choice') {
         logs.push(`🔀 Prompted modal choice: [${eff.choiceLabels?.join(' OR ')}]. Choice executed successfully.`);
+      } else if (eff.type === 'deploy_card') {
+        const cnt = eff.deployCount || eff.amount || 1;
+        const target = eff.deployCardType === 'any' || !eff.deployCardType ? 'any card' : `${eff.deployCardType} card`;
+        logs.push(`🚀 Free Deploy Keyword Activated: Allowed putting into play ${cnt} ${target}${cnt > 1 ? 's' : ''} from hand WITHOUT paying card cost!`);
+      } else if (eff.type === 'exhaust_card') {
+        const cnt = eff.amount || 1;
+        logs.push(`💤 Exhaust Keyword Activated: Changed ${cnt} opponent's card(s) to Exhaust condition to prevent resource production or special abilities!`);
       }
+    }
+
+    if (parsed.isIntercept) {
+      logs.push(`🛡️ Intercept Keyword: Card can be deployed or use its special ability out of turn when attacked!`);
+    }
+    if (parsed.isInterrupt) {
+      logs.push(`⚡ Interrupt Keyword: Card can be played anytime out of player's turn, even when not being attacked!`);
+    }
+    if (parsed.discardAtEndOfTurn) {
+      logs.push(`⏳ Discard at end of turn: Automatically flagged to discard to the discard pile at the end of player's turn.`);
     }
 
     logs.push(`✅ Action resolved cleanly with no errors.`);
@@ -527,6 +564,62 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 >
                   +Siphon 2 coins
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Deploy ${chipParamX} Operative card${chipParamX > 1 ? 's' : ''} from your hand.`)}
+                  className="px-2 py-0.5 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Deploy {chipParamX} Operative(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Deploy ${chipParamX} Location card${chipParamX > 1 ? 's' : ''} from your hand.`)}
+                  className="px-2 py-0.5 rounded bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Deploy {chipParamX} Location(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Deploy ${chipParamX} Support card${chipParamX > 1 ? 's' : ''} from your hand.`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Deploy {chipParamX} Support(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Deploy any ${chipParamX} card${chipParamX > 1 ? 's' : ''} from your hand.`)}
+                  className="px-2 py-0.5 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Deploy Any {chipParamX}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Exhaust ${chipParamX} opponent's card${chipParamX > 1 ? 's' : ''}.`)}
+                  className="px-2 py-0.5 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Exhaust {chipParamX} Card(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Intercept.`)}
+                  className="px-2 py-0.5 rounded bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Intercept
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Interrupt.`)}
+                  className="px-2 py-0.5 rounded bg-yellow-950/80 hover:bg-yellow-900 text-yellow-300 border border-yellow-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Interrupt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Discard at end of turn.`)}
+                  className="px-2 py-0.5 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Discard at end of turn
+                </button>
               </div>
             </div>
           </div>
@@ -589,6 +682,8 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 <option value="sacrifice">🔥 Sacrifice (From Play to Discard)</option>
                 <option value="deploy">✨ On Deploy (When Cast)</option>
                 <option value="reaction_defense">🛡️ Intercept Reaction (Out-of-Turn)</option>
+                <option value="intercept">🛡️ Intercept (Deploy / Special Ability Out-of-Turn When Attacked)</option>
+                <option value="interrupt">⚡ Interrupt (Play Anytime Out-of-Turn)</option>
               </select>
             </div>
 
@@ -605,7 +700,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 <option value="friendly_op">Friendly Operative</option>
                 <option value="all_friendly_ops">All Friendly Operatives</option>
                 <option value="enemy_op">Enemy Operative</option>
-                <option value="opponent">Opponent (Hand / Resources)</option>
+                <option value="opponent">Opponent (Hand / Resources / In-Play)</option>
                 <option value="none">Self / Global Game State</option>
               </select>
             </div>
@@ -643,16 +738,18 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
             <label className="block text-[10px] text-zinc-400 mb-1 uppercase font-semibold">
               3. Effect Category
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1">
               {[
-                { id: 'tech_token', label: '⚡ +x/+x Tech Token' },
+                { id: 'tech_token', label: '⚡ +x/+x Tech' },
                 { id: 'buff', label: '⚔️ Stat Buff' },
                 { id: 'skill', label: '🎖️ Skill Token' },
                 { id: 'draw', label: '🎴 Draw Cards' },
                 { id: 'siphon', label: '💰 Siphon Coins' },
                 { id: 'discard', label: '🗑️ Discard' },
                 { id: 'spawn', label: '👥 Spawn Token' },
-                { id: 'defense', label: '🛡️ Intercept' }
+                { id: 'defense', label: '🛡️ Intercept DEF' },
+                { id: 'deploy', label: '🚀 Deploy Free' },
+                { id: 'exhaust', label: '💤 Exhaust Card' }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -850,6 +947,86 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 />
               </div>
             )}
+
+            {builderEffectCategory === 'deploy' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Target Card Type</label>
+                  <select
+                    value={deployTargetType}
+                    onChange={e => setDeployTargetType(e.target.value as any)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                  >
+                    <option value="Operative">Operative (Units)</option>
+                    <option value="Location">Location (Buildings)</option>
+                    <option value="Support">Support (Spells/Actions)</option>
+                    <option value="any">Any Card Type (Variation: Deploy any x)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Number of Cards (x)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={deployCount}
+                    onChange={e => setDeployCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-emerald-400 font-bold text-center"
+                  />
+                </div>
+                <div className="col-span-2 text-[11px] text-emerald-300 bg-emerald-950/40 p-2 rounded border border-emerald-800/50">
+                  ✨ <strong>Keyword Effect:</strong> Put into play {deployCount} {deployTargetType === 'any' ? 'card(s) of any type' : `${deployTargetType} card(s)`} from hand <strong>without paying card cost</strong>!
+                </div>
+              </div>
+            )}
+
+            {builderEffectCategory === 'exhaust' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Target Card Type</label>
+                  <select
+                    value={exhaustTargetType}
+                    onChange={e => setExhaustTargetType(e.target.value as any)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                  >
+                    <option value="card">Any Card (In Play)</option>
+                    <option value="operative">Operative Only</option>
+                    <option value="location">Location Only</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Number of Cards (x)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={exhaustCount}
+                    onChange={e => setExhaustCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-purple-400 font-bold text-center"
+                  />
+                </div>
+                <div className="col-span-2 text-[11px] text-purple-300 bg-purple-950/40 p-2 rounded border border-purple-800/50">
+                  💤 <strong>Keyword Effect:</strong> Put {exhaustCount} opponent's {exhaustTargetType === 'card' ? 'card(s)' : `${exhaustTargetType}(s)`} to <strong>Exhaust condition</strong> to prevent resource production or special abilities!
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Keyword Modifier: Discard at end of turn */}
+          <div className="p-2.5 rounded-lg bg-zinc-900/70 border border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="builderDiscardEndTurn"
+                checked={builderDiscardEndTurn}
+                onChange={e => setBuilderDiscardEndTurn(e.target.checked)}
+                className="rounded bg-zinc-950 border-zinc-700 text-rose-500 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="builderDiscardEndTurn" className="text-xs text-zinc-300 cursor-pointer flex items-center gap-1.5 font-semibold">
+                <span className="text-rose-400 font-bold">⏳ Discard at end of turn:</span>
+                <span className="text-[11px] text-zinc-400">Card is automatically discarded at the end of the player's turn</span>
+              </label>
+            </div>
           </div>
 
           <button

@@ -34,8 +34,8 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
 }) => {
   if (selectedAttackers.length === 0) return null;
 
-  // Calculate Base Offense and Skills for the operative team
-  const baseOffense = selectedAttackers.reduce((acc, c) => acc + (c.off || 1) + (c.tempOffenseBuff || 0), 0);
+  // Calculate Base Offense and Skills for the operative team (including Tech Tokens & buffs)
+  const baseOffense = selectedAttackers.reduce((acc, c) => acc + (c.off || 1) + (c.tempOffenseBuff || 0) + (c.techTokens || 0), 0);
   const totalAssSkill = selectedAttackers.reduce((acc, c) => acc + (c.ass || 0), 0);
   const totalRaidSkill = selectedAttackers.reduce((acc, c) => acc + (c.raid || 0), 0);
   const totalSubSkill = selectedAttackers.reduce((acc, c) => acc + (c.sub || 0), 0);
@@ -83,7 +83,7 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
   let targetDefenseInfo: { baseDef: number; skillBonus: number; totalDef: number } | null = null;
   if (selectedOperation === 'ass' && selectedTarget) {
     const baseDef = selectedTarget.def || 1;
-    const tempBuff = selectedTarget.tempDefenseBuff || 0;
+    const tempBuff = (selectedTarget.tempDefenseBuff || 0) + (selectedTarget.techTokens || 0);
     const isExh = selectedTarget.exhausted;
     // Rule: Innate defense includes assassination skill if Ready
     const skillBonus = isExh ? 0 : (selectedTarget.ass || 0);
@@ -272,7 +272,7 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
             {enemyOps.map(op => {
               const isSelected = selectedTarget?.id === op.id;
               const isExh = op.exhausted;
-              const opDef = (op.def || 1) + (op.tempDefenseBuff || 0) + (isExh ? 0 : (op.ass || 0));
+              const opDef = (op.def || 1) + (op.techTokens || 0) + (op.tempDefenseBuff || 0) + (isExh ? 0 : (op.ass || 0));
 
               return (
                 <button

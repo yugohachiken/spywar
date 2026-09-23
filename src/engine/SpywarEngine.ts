@@ -582,10 +582,52 @@ export class SpywarEngine {
     this.log(player.pid, 'HAND-LIMIT', `AI hand exceeded ${this.config.maxHandSize} cards. Discarded: [${discardedCards.join(', ')}].`);
   }
 
+  /**
+   * Draws a single card from the draw deck into player's hand, respecting hand limits
+   */
+  drawCard(player: Player): Card | null {
+    if (this.drawDeck.length > 0) {
+      const drawn = this.drawDeck.pop()!;
+      player.hand.push(drawn);
+      this.recordCardDrawn(drawn);
+      if (player.isAI) {
+        this.enforceHandLimitForAI(player);
+      }
+      return drawn;
+    }
+    return null;
+  }
+
   endPlayerTurn() {
     this.currentPhase = 'CLEANUP';
     const player = this.getActivePlayer();
     const opponent = this.getOpponent();
+
+    // Reset any temporary free deploy sequences
+    player.pendingFreeDeploys = undefined;
+    opponent.pendingFreeDeploys = undefined;
+
+    // Discard at end of turn keyword enforcement:
+    // Cards with this keyword are automatically discarded at the end of the player's turn
+    const endTurnDiscards: Card[] = [];
+    for (let i = player.battlefield.length - 1; i >= 0; i--) {
+      const c = player.battlefield[i];
+      let shouldDiscard = c.discardAtEndOfTurn;
+      if (!shouldDiscard && (c.abilityText || c.specialAbility)) {
+        const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility);
+        if (parsed.discardAtEndOfTurn) {
+          shouldDiscard = true;
+        }
+      }
+      if (shouldDiscard) {
+        player.battlefield.splice(i, 1);
+        player.discard_pile.push(c);
+        endTurnDiscards.push(c);
+      }
+    }
+    if (endTurnDiscards.length > 0) {
+      this.log(player.pid, 'END-TURN-DISCARD', `Discarded [${endTurnDiscards.map(c => c.name).join(', ')}] from battlefield to discard pile (Keyword: Discard at end of turn).`);
+    }
 
     // Check "Observer" mission: no offensive operations this turn
     if (player.telemetry.operationsConductedThisTurn === 0) {
@@ -733,6 +775,37 @@ export class SpywarEngine {
         });
       }
       return actions;
+    }
+
+    // Free Deploy Sequence from "Deploy x card_type" or "Deploy any x" keyword
+    if (player.pendingFreeDeploys && player.pendingFreeDeploys.count > 0) {
+      const reqType = player.pendingFreeDeploys.cardType;
+      const matchingHand = player.hand.filter(c => reqType === 'any' || c.type === reqType);
+
+      if (matchingHand.length > 0) {
+        const cardsToDeploy = selectedCard
+          ? (matchingHand.some(c => c.id === selectedCard.id) ? [selectedCard] : matchingHand)
+          : matchingHand;
+
+        for (const card of cardsToDeploy) {
+          actions.push({
+            type: 'DEPLOY_FREE_CARD',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            desc: `Deploy ${card.name} (${card.type}, Cost: ${card.cost} -> FREE) [${player.pendingFreeDeploys.count} left from ${player.pendingFreeDeploys.sourceCardName}]`
+          });
+        }
+
+        actions.push({
+          type: 'FINISH_FREE_DEPLOY',
+          desc: `Finish Deploying Free Cards (Skip remaining ${player.pendingFreeDeploys.count})`
+        });
+        return actions;
+      } else {
+        // No matching cards in hand, cancel pending
+        player.pendingFreeDeploys = undefined;
+      }
     }
 
     if (this.currentPhase === 'DRAW') {
@@ -1117,7 +1190,7 @@ export class SpywarEngine {
 
           // (1) Assassination Operations
           for (const target of enemyOps) {
-            const soloOff = (op.off || 1) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.ass || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1133,7 +1206,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1152,7 +1225,7 @@ export class SpywarEngine {
 
           // (2) Raid Operations
           for (const target of raidTargets) {
-            const soloOff = (op.off || 1) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.raid || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1168,7 +1241,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1187,7 +1260,7 @@ export class SpywarEngine {
 
           // (3) Subterfuge Operations
           if (opponent.hand.length > 0) {
-            const soloOff = (op.off || 1) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.sub || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1200,7 +1273,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1705,7 +1778,7 @@ export class SpywarEngine {
 
       // 4e. Assassinate (Solo & Team)
       for (const target of enemyOps) {
-        const soloOff = (op.off || 1) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.ass || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1721,7 +1794,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1740,7 +1813,7 @@ export class SpywarEngine {
 
       // 4f. Raid (Solo & Team)
       for (const target of raidTargets) {
-        const soloOff = (op.off || 1) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.raid || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1756,7 +1829,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1775,7 +1848,7 @@ export class SpywarEngine {
 
       // 4g. Subterfuge (Solo & Team)
       if (opponent.hand.length > 0) {
-        const soloOff = (op.off || 1) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.sub || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1788,7 +1861,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -2059,6 +2132,7 @@ export class SpywarEngine {
           // +x/+x Tech token buffs both OFF and DEF by x
           const amt = tokenEff.amount || 1;
           for (const op of friendlyOps) {
+            const hasTechToken = (op.techTokens || 0) > 0;
             actions.push({
               type: 'DYNAMIC_ABILITY',
               cardId: card.id,
@@ -2069,9 +2143,9 @@ export class SpywarEngine {
               targetCard: op,
               subChoice: 'token_tech',
               dynamicAbilityEffect: { effect: tokenEff, ...baseDynamicData },
-              disabled: !hasEnoughCoins,
-              disabledReason: costDisabledReason,
-              desc: `${prefix}: Grant ${op.name} +${amt}/+${amt} Tech token`
+              disabled: !hasEnoughCoins || hasTechToken,
+              disabledReason: !hasEnoughCoins ? costDisabledReason : `${op.name} already has a Tech token (Stacking same token disallowed)`,
+              desc: `${prefix}: Grant ${op.name} +${amt}/+${amt} Tech token${hasTechToken ? ' (Already has Tech token)' : ''}`
             });
           }
         } else {
@@ -2101,6 +2175,84 @@ export class SpywarEngine {
       }
     }
 
+    // Deploy Card effect ("Deploy x card_type" or "Deploy any x")
+    const deployEff = parsed.effects.find(e => e.type === 'deploy_card');
+    if (deployEff) {
+      const reqType = deployEff.deployCardType || 'any';
+      const deployCount = deployEff.deployCount || deployEff.amount || 1;
+      const typeLabel = reqType === 'any' ? 'card' : `${reqType} card`;
+      const matchingHand = player.hand.filter(c => reqType === 'any' || c.type === reqType);
+
+      if (matchingHand.length === 0) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          disabled: true,
+          disabledReason: `No ${reqType === 'any' ? '' : reqType + ' '}cards in hand to deploy`,
+          desc: `${prefix}: Deploy ${deployCount} ${typeLabel}${deployCount > 1 ? 's' : ''} (None in hand)`
+        });
+      } else {
+        for (const handCard of matchingHand) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            targetId: handCard.id,
+            targetName: handCard.name,
+            targetCard: handCard,
+            dynamicAbilityEffect: { effect: deployEff, ...baseDynamicData },
+            disabled: !hasEnoughCoins,
+            disabledReason: costDisabledReason,
+            desc: `${prefix}: Deploy ${handCard.name} (${handCard.type}, Cost: ${handCard.cost} -> FREE)`
+          });
+        }
+      }
+    }
+
+    // Exhaust effect: put one or more of opponent's card to Exhaust condition
+    const exhaustEff = parsed.effects.find(e => e.type === 'exhaust_card');
+    if (exhaustEff) {
+      let eligibleTargets = opponent.battlefield.filter(c => !c.exhausted);
+      if (exhaustEff.exhaustTargetType === 'operative') {
+        eligibleTargets = eligibleTargets.filter(c => c.type === 'Operative');
+      } else if (exhaustEff.exhaustTargetType === 'location') {
+        eligibleTargets = eligibleTargets.filter(c => c.type === 'Location');
+      }
+
+      if (eligibleTargets.length === 0) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          disabled: true,
+          disabledReason: "Opponent has no ready cards in play to exhaust",
+          desc: `${prefix} (Unavailable: No ready opponent cards to exhaust)`,
+          isSpecialAbilityAttack: true
+        });
+      } else {
+        for (const oppCard of eligibleTargets) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            targetId: oppCard.id,
+            targetName: oppCard.name,
+            targetCard: oppCard,
+            dynamicAbilityEffect: { effect: exhaustEff, ...baseDynamicData },
+            disabled: !hasEnoughCoins,
+            disabledReason: costDisabledReason,
+            desc: `${prefix}: Exhaust opponent's ${oppCard.name} (${oppCard.type})`,
+            isSpecialAbilityAttack: true
+          });
+        }
+      }
+    }
+
     return actions;
   }
 
@@ -2119,6 +2271,120 @@ export class SpywarEngine {
     if (cardName === 'Hired Subterfuge') return opponent.hand.length > 0;
     if (cardName === 'Global Dominion Plan') return this.canPlayGlobalDominionPlan(player);
     return true;
+  }
+
+  /**
+   * Puts 1 card from hand directly into play without paying the card cost.
+   * Handles Support, Operative, and Location types.
+   */
+  deployCardFromHandFree(
+    player: Player,
+    opponent: Player,
+    cardToDeploy: Card,
+    sourceCard?: Card
+  ): { success: boolean; message: string } {
+    const idx = player.hand.findIndex(c => c.id === cardToDeploy.id);
+    if (idx !== -1) {
+      player.hand.splice(idx, 1);
+    }
+
+    player.telemetry.cardsPlayedThisTurn++;
+    this.recordCardPlayed(cardToDeploy);
+
+    if (cardToDeploy.isNamed) {
+      player.telemetry.playedNamedThisTurn = true;
+      this.placeMissionTokens(player, 'play_named', 1);
+    }
+
+    const sourceLabel = sourceCard ? ` via ${sourceCard.name}` : '';
+
+    if (cardToDeploy.type === 'Location') {
+      const locExh = this.config.locationSummonState === 'E';
+      const inst: Card = { ...cardToDeploy, stored_coins: 0, exhausted: locExh };
+      player.battlefield.push(inst);
+      this.log(player.pid, 'DEPLOY-FREE', `Deployed Location for FREE${sourceLabel}: ${cardToDeploy.name} (Original Cost: ${cardToDeploy.cost}) ${locExh ? '(E)' : '(R)'}.`);
+      return { success: true, message: `Deployed Location ${cardToDeploy.name} for FREE.` };
+    }
+
+    if (cardToDeploy.type === 'Operative') {
+      const opExh = this.config.operativeSummonState === 'E';
+      const inst: Card = { ...cardToDeploy, exhausted: opExh };
+      player.battlefield.push(inst);
+      this.log(player.pid, 'DEPLOY-FREE', `Deployed Operative for FREE${sourceLabel}: ${cardToDeploy.name} (Original Cost: ${cardToDeploy.cost}) [Off:${cardToDeploy.off}/Def:${cardToDeploy.def}] ${opExh ? '(E)' : '(R)'}.`);
+
+      // Ghost / ghost_siphon_2
+      if (cardToDeploy.name === 'Ghost' || cardToDeploy.specialAbility === 'ghost_siphon_2') {
+        const stolen = Math.min(this.getTotalSpendableCoins(opponent), 2);
+        if (stolen > 0) {
+          this.spendCoins(opponent, stolen);
+          player.current_turn_coins += stolen;
+          this.log(player.pid, 'GHOST-SIPHON', `Ghost triggered on deployment! Siphoned ${stolen} coin(s) from ${opponent.name}.`);
+        }
+      }
+
+      // Check for dynamic "On Deploy" trigger
+      if (cardToDeploy.abilityText || cardToDeploy.specialAbility) {
+        const parsed = AbilityParserService.getInstance().parseAbility(cardToDeploy.abilityText || cardToDeploy.specialAbility);
+        if (parsed.trigger === 'deploy' && parsed.isValid) {
+          for (const eff of parsed.effects) {
+            if (eff.type === 'draw') {
+              const amt = eff.amount || 1;
+              for (let i = 0; i < amt; i++) this.drawCard(player);
+              this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: drew ${amt} card(s).`);
+            } else if (eff.type === 'siphon') {
+              const amt = eff.amount || 1;
+              const stolen = Math.min(this.getTotalSpendableCoins(opponent), amt);
+              if (stolen > 0) {
+                this.spendCoins(opponent, stolen);
+                player.current_turn_coins += stolen;
+                this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: siphoned ${stolen} coin(s).`);
+              }
+            } else if (eff.type === 'produce_coins') {
+              const amt = eff.amount || 1;
+              player.current_turn_coins += amt;
+              this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: produced +${amt} coin(s).`);
+            } else if (eff.type === 'buff_stat') {
+              const amt = eff.amount || 1;
+              if (eff.stat === 'off') {
+                inst.tempOffenseBuff = (inst.tempOffenseBuff || 0) + amt;
+              } else {
+                inst.tempDefenseBuff = (inst.tempDefenseBuff || 0) + amt;
+              }
+              this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: gained +${amt} ${eff.stat?.toUpperCase()}.`);
+            }
+          }
+        }
+      }
+
+      return { success: true, message: `Deployed Operative ${cardToDeploy.name} for FREE.` };
+    }
+
+    if (cardToDeploy.type === 'Support') {
+      player.discard_pile.push(cardToDeploy);
+      this.log(player.pid, 'DEPLOY-FREE', `Cast Support for FREE${sourceLabel}: ${cardToDeploy.name} (Original Cost: ${cardToDeploy.cost}). Resolving effects...`);
+      this.resolveSupportSpell(player, opponent, cardToDeploy.name);
+
+      if (cardToDeploy.abilityText || cardToDeploy.specialAbility) {
+        const parsed = AbilityParserService.getInstance().parseAbility(cardToDeploy.abilityText || cardToDeploy.specialAbility);
+        const deployEff = parsed.effects.find(e => e.type === 'deploy_card');
+        if (deployEff) {
+          const reqType = deployEff.deployCardType || 'any';
+          const totalCount = deployEff.deployCount || deployEff.amount || 1;
+          const matchingHand = player.hand.filter(c => reqType === 'any' || c.type === reqType);
+          if (matchingHand.length > 0) {
+            player.pendingFreeDeploys = {
+              count: totalCount,
+              cardType: reqType,
+              sourceCardName: cardToDeploy.name
+            };
+            this.log(player.pid, 'FREE-DEPLOY', `${cardToDeploy.name} activated: Choose up to ${totalCount} ${reqType === 'any' ? '' : reqType + ' '}card(s) to deploy for FREE.`);
+          }
+        }
+      }
+      return { success: true, message: `Cast Support ${cardToDeploy.name} for FREE.` };
+    }
+
+    return { success: true, message: `Deployed ${cardToDeploy.name} for FREE.` };
   }
 
   // ==========================================
@@ -2187,6 +2453,31 @@ export class SpywarEngine {
         }
       }
       return { success: false, message: 'Card not found in hand.' };
+    }
+
+    if (action.type === 'FINISH_FREE_DEPLOY') {
+      const sourceName = player.pendingFreeDeploys?.sourceCardName || 'Free Deploy';
+      player.pendingFreeDeploys = undefined;
+      this.log(player.pid, 'FREE-DEPLOY', `${player.name} finished free deployment sequence (${sourceName}).`);
+      return { success: true, message: 'Finished free deployment.' };
+    }
+
+    if (action.type === 'DEPLOY_FREE_CARD') {
+      const cardToDeploy = action.card || player.hand.find(c => c.id === action.cardId);
+      if (!cardToDeploy) {
+        return { success: false, message: 'Card not found in hand to deploy.' };
+      }
+      const sourceCardName = player.pendingFreeDeploys?.sourceCardName;
+      const deployRes = this.deployCardFromHandFree(player, opponent, cardToDeploy, sourceCardName ? { name: sourceCardName } as Card : undefined);
+      if (deployRes.success && player.pendingFreeDeploys) {
+        player.pendingFreeDeploys.count--;
+        const reqType = player.pendingFreeDeploys.cardType;
+        const stillHasMatching = player.hand.some(c => reqType === 'any' || c.type === reqType);
+        if (player.pendingFreeDeploys.count <= 0 || !stillHasMatching) {
+          player.pendingFreeDeploys = undefined;
+        }
+      }
+      return deployRes;
     }
 
     if (action.type === 'TAP_PROD') {
@@ -2268,14 +2559,23 @@ export class SpywarEngine {
       if (card.specialAbility === 'buff_skill' || card.specialAbility === 'grant_skill_token') {
         const target = action.targetCard!;
         if (action.subChoice === 'buff_ass') {
+          if ((target.ass || 0) > 0 && !this.config.allowDuplicateSkillTokens) {
+            return { success: false, message: `${target.name} already has Assassin skill (Duplicate skill tokens disallowed).` };
+          }
           target.ass = (target.ass || 0) + 1;
           this.log(player.pid, 'ABILITY', `${card.name} granted +1 Assassin token to ${target.name} (Total ASS: ${target.ass}).`);
           return { success: true, message: `Granted +1 Assassin token to ${target.name}.` };
         } else if (action.subChoice === 'buff_raid') {
+          if ((target.raid || 0) > 0 && !this.config.allowDuplicateSkillTokens) {
+            return { success: false, message: `${target.name} already has Raid skill (Duplicate skill tokens disallowed).` };
+          }
           target.raid = (target.raid || 0) + 1;
           this.log(player.pid, 'ABILITY', `${card.name} granted +1 Raid token to ${target.name} (Total RAID: ${target.raid}).`);
           return { success: true, message: `Granted +1 Raid token to ${target.name}.` };
         } else if (action.subChoice === 'buff_sub') {
+          if ((target.sub || 0) > 0 && !this.config.allowDuplicateSkillTokens) {
+            return { success: false, message: `${target.name} already has Subterfuge skill (Duplicate skill tokens disallowed).` };
+          }
           target.sub = (target.sub || 0) + 1;
           this.log(player.pid, 'ABILITY', `${card.name} granted +1 Subterfuge token to ${target.name} (Total SUB: ${target.sub}).`);
           return { success: true, message: `Granted +1 Subterfuge token to ${target.name}.` };
@@ -2409,14 +2709,30 @@ export class SpywarEngine {
         const target = action.targetCard || card;
         const amt = effect.amount || 1;
         if (effect.tokenType === 'tech' || effect.stat === 'both') {
+          if ((target.techTokens || 0) > 0) {
+            return { success: false, message: `${target.name} already has a Tech token (Stacking same token is not allowed).` };
+          }
           target.techTokens = (target.techTokens || 0) + amt;
           this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Tech token on ${target.name} (Total Tech: +${target.techTokens}/+${target.techTokens}).`);
           return { success: true, message: `Placed +${amt}/+${amt} Tech token on ${target.name}.` };
         }
         const sk = (effect.skill || 'ass') as 'ass' | 'raid' | 'sub';
+        if ((target[sk] || 0) > 0 && !this.config.allowDuplicateSkillTokens) {
+          return { success: false, message: `${target.name} already has ${sk.toUpperCase()} skill (Cannot place duplicate skill token).` };
+        }
         target[sk] = (target[sk] || 0) + amt;
         this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt} ${sk.toUpperCase()} token on ${target.name}.`);
         return { success: true, message: `Placed +${amt} ${sk.toUpperCase()} token on ${target.name}.` };
+      }
+
+      if (effect.type === 'exhaust_card') {
+        const target = action.targetCard || opponent.battlefield.find(c => c.id === action.targetId);
+        if (!target) {
+          return { success: false, message: 'No target card found to exhaust.' };
+        }
+        target.exhausted = true;
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed ${target.name} into Exhaust condition (Keyword: Exhaust).`);
+        return { success: true, message: `Exhausted opponent's ${target.name}.` };
       }
 
       if (effect.type === 'spawn_token') {
@@ -2445,6 +2761,31 @@ export class SpywarEngine {
         player.current_turn_coins += amt;
         this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} generated +${amt} coin(s).`);
         return { success: true, message: `Generated +${amt} coin(s).` };
+      }
+
+      if (effect.type === 'deploy_card') {
+        const cardToDeploy = action.targetCard || player.hand.find(c => c.id === action.targetId);
+        if (!cardToDeploy) {
+          return { success: false, message: 'No card selected from hand to deploy.' };
+        }
+        const deployRes = this.deployCardFromHandFree(player, opponent, cardToDeploy, card);
+        if (deployRes.success) {
+          const totalCount = effect.deployCount || effect.amount || 1;
+          if (totalCount > 1) {
+            const remaining = totalCount - 1;
+            const reqType = effect.deployCardType || 'any';
+            const stillHasMatching = player.hand.some(c => reqType === 'any' || c.type === reqType);
+            if (stillHasMatching) {
+              player.pendingFreeDeploys = {
+                count: remaining,
+                cardType: reqType,
+                sourceCardName: card.name
+              };
+              this.log(player.pid, 'FREE-DEPLOY', `${remaining} free deploy(s) remaining for ${player.name} from ${card.name}.`);
+            }
+          }
+        }
+        return deployRes;
       }
 
       return { success: true, message: `Ability resolved successfully.` };
@@ -2569,6 +2910,25 @@ export class SpywarEngine {
         player.discard_pile.push(card);
         this.log(player.pid, 'CAST-SUPPORT', `Cast Support: ${card.name} (Cost: ${cost}).`);
         this.resolveSupportSpell(player, opponent, card.name);
+
+        if (card.abilityText || card.specialAbility) {
+          const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility);
+          const deployEff = parsed.effects.find(e => e.type === 'deploy_card');
+          if (deployEff) {
+            const reqType = deployEff.deployCardType || 'any';
+            const totalCount = deployEff.deployCount || deployEff.amount || 1;
+            const matchingHand = player.hand.filter(c => reqType === 'any' || c.type === reqType);
+            if (matchingHand.length > 0) {
+              player.pendingFreeDeploys = {
+                count: totalCount,
+                cardType: reqType,
+                sourceCardName: card.name
+              };
+              this.log(player.pid, 'FREE-DEPLOY', `${card.name} activated: Choose up to ${totalCount} ${reqType === 'any' ? '' : reqType + ' '}card(s) to deploy for FREE.`);
+            }
+          }
+        }
+
         return { success: true, message: `Cast ${card.name}.` };
       }
     }
@@ -2577,7 +2937,7 @@ export class SpywarEngine {
       const op = action.card!;
       const isGeneric = op.specialAbility === 'sacrifice_discard_hand_or_field';
       const threatType = action.subChoice === 'discard_hand' ? 'sub' : 'ass';
-      const incomingAttack = (op.off || 4) + (threatType === 'ass' ? (op.ass || 2) : (op.sub || 2)); // 6
+      const incomingAttack = (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (threatType === 'ass' ? (op.ass || 2) : (op.sub || 2)); // 6
       const defRes = this.resolveDefense(opponent, threatType, incomingAttack, defenderCardIds || action.defenderCardIds, bonusDefense);
 
       // Card is sacrificed from play regardless
@@ -2644,7 +3004,7 @@ export class SpywarEngine {
       // 1. Boksoon Specialized Ability: Discard enemy operative with Assassin >= 1
       if (action.opType === 'boksoon_ass') {
         const target = action.targetCard!;
-        const atk = (op.off || 4) + (op.ass || 3); // Boksoon ATK = 7
+        const atk = (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.ass || 3); // Boksoon ATK
         const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -2666,7 +3026,7 @@ export class SpywarEngine {
 
       // 2. Mata Hari Specialized Ability: Steal random card from enemy hand
       if (action.opType === 'mata_hari_steal') {
-        const atk = (op.off || 3) + (op.sub || 3); // Mata Hari ATK = 6
+        const atk = (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.sub || 3); // Mata Hari ATK
         const defRes = this.resolveDefense(opponent, 'sub', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -2690,7 +3050,7 @@ export class SpywarEngine {
 
       // 3. Ghost Specialized Activation: Siphon 2 resources
       if (action.opType === 'ghost_siphon') {
-        const atk = (op.off || 3) + (op.raid || 3); // Ghost ATK = 6
+        const atk = (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.raid || 3); // Ghost ATK
         const defRes = this.resolveDefense(opponent, 'raid', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -2952,7 +3312,121 @@ export class SpywarEngine {
       }
     }
 
+    if (action.type === 'INTERRUPT_ACTION') {
+      const card = action.card || player.hand.find(c => c.id === action.cardId) || player.battlefield.find(c => c.id === action.cardId);
+      if (!card) return { success: false, message: 'Interrupt card not found.' };
+
+      const inHandIdx = player.hand.findIndex(c => c.id === card.id);
+      if (inHandIdx !== -1) {
+        // Playing from hand out of turn
+        const cost = card.cost || 0;
+        if (player.current_turn_coins < cost) {
+          return { success: false, message: `Not enough coins to play Interrupt (Requires ${cost}).` };
+        }
+        player.current_turn_coins -= cost;
+        player.hand.splice(inHandIdx, 1);
+
+        if (card.type === 'Support') {
+          player.discard_pile.push(card);
+          this.log(player.pid, 'INTERRUPT', `⚡ Played Interrupt Support: ${card.name} out-of-turn!`);
+          if (action.dynamicAbilityEffect) {
+            return this.executeAction(player, opponent, { ...action, type: 'DYNAMIC_ABILITY' });
+          }
+          return { success: true, message: `Played Interrupt ${card.name} out-of-turn.` };
+        } else {
+          card.exhausted = this.config.operativeSummonState === 'E';
+          player.battlefield.push(card);
+          this.log(player.pid, 'INTERRUPT', `⚡ Deployed Interrupt ${card.name} (${card.type}) out-of-turn!`);
+          return { success: true, message: `Deployed Interrupt ${card.name} out-of-turn.` };
+        }
+      } else {
+        // Triggering from battlefield
+        return this.executeAction(player, opponent, { ...action, type: 'DYNAMIC_ABILITY' });
+      }
+    }
+
     return { success: false, message: 'Action could not be executed.' };
+  }
+
+  /**
+   * Retrieves all available Interrupt actions for a player that can be played anytime, out-of-turn
+   */
+  getInterruptActions(player: Player, opponent: Player): Action[] {
+    const actions: Action[] = [];
+
+    // 1. Cards in hand with Interrupt keyword
+    for (const card of player.hand) {
+      let isInterrupt = card.isInterrupt;
+      if (!isInterrupt && (card.abilityText || card.specialAbility)) {
+        const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '');
+        if (parsed.isInterrupt || parsed.trigger === 'interrupt') {
+          isInterrupt = true;
+        }
+      }
+
+      if (isInterrupt) {
+        const hasCoins = player.current_turn_coins >= (card.cost || 0);
+        const costReason = !hasCoins ? `Requires ${card.cost} coins (You have ${player.current_turn_coins})` : undefined;
+
+        if (card.type === 'Support') {
+          const parsed = (card.abilityText || card.specialAbility) ? AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '') : null;
+          if (parsed && parsed.effects.length > 0) {
+            const dyn = this.generateDynamicActionsForCard(card, player, opponent);
+            for (const act of dyn) {
+              actions.push({
+                ...act,
+                type: 'INTERRUPT_ACTION',
+                desc: `⚡ Interrupt from Hand: ${act.desc}`
+              });
+            }
+          } else {
+            actions.push({
+              type: 'INTERRUPT_ACTION',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              disabled: !hasCoins,
+              disabledReason: costReason,
+              desc: `⚡ Interrupt from Hand: Play ${card.name} (${card.cost} coins)`
+            });
+          }
+        } else {
+          actions.push({
+            type: 'INTERRUPT_ACTION',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            disabled: !hasCoins,
+            disabledReason: costReason,
+            desc: `⚡ Interrupt Deploy: Deploy ${card.name} out-of-turn (${card.type}, ${card.cost} coins)`
+          });
+        }
+      }
+    }
+
+    // 2. Cards on battlefield with Interrupt keyword
+    for (const card of player.battlefield) {
+      let isInterrupt = card.isInterrupt;
+      if (!isInterrupt && (card.abilityText || card.specialAbility)) {
+        const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '');
+        if (parsed.isInterrupt || parsed.trigger === 'interrupt') {
+          isInterrupt = true;
+        }
+      }
+
+      if (isInterrupt) {
+        const dyn = this.generateDynamicActionsForCard(card, player, opponent);
+        for (const act of dyn) {
+          actions.push({
+            ...act,
+            type: 'INTERRUPT_ACTION',
+            desc: `⚡ Interrupt: ${act.desc}`
+          });
+        }
+      }
+    }
+
+    return actions;
   }
 
   // ==========================================
@@ -3080,7 +3554,7 @@ export class SpywarEngine {
     }
     const card = defender.hand[cardIdx];
     const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText);
-    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense;
+    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
 
     if (!isReaction) {
       return { success: false, defBonus: 0, message: 'Card cannot be played out of turn on defense.' };

@@ -14,6 +14,7 @@ interface CardViewProps {
   selectionRole?: 'attacker' | 'defender' | 'target';
   selectionBadge?: string;
   compact?: boolean;
+  playLabel?: string;
 }
 
 export const CardView: React.FC<CardViewProps> = ({
@@ -26,7 +27,8 @@ export const CardView: React.FC<CardViewProps> = ({
   selected = false,
   selectionRole,
   selectionBadge,
-  compact = false
+  compact = false,
+  playLabel
 }) => {
   const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const isExhausted = card.exhausted;
@@ -217,9 +219,11 @@ export const CardView: React.FC<CardViewProps> = ({
             e.stopPropagation();
             onPlay();
           }}
-          className="mt-1 w-full py-1 text-[11px] font-semibold font-mono rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+          className={`mt-1 w-full py-1 text-[11px] font-semibold font-mono rounded text-white transition-colors ${
+            playLabel?.includes('FREE') ? 'bg-amber-600 hover:bg-amber-500 font-bold shadow-sm' : 'bg-emerald-600 hover:bg-emerald-500'
+          }`}
         >
-          Deploy ({card.cost})
+          {playLabel || `Deploy (${card.cost})`}
         </button>
       )}
 

@@ -147,6 +147,7 @@ export class ISMCTSAgent {
     clone.players = source.players.map(p => ({
       ...p,
       affiliation: p.affiliation ? { ...p.affiliation } : null,
+      pendingFreeDeploys: p.pendingFreeDeploys ? { ...p.pendingFreeDeploys } : undefined,
       hand: p.hand.map(c => ({ ...c })),
       battlefield: p.battlefield.map(c => ({ ...c })),
       discard_pile: p.discard_pile.map(c => ({ ...c })),

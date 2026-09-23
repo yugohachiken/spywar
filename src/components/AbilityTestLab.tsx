@@ -10,7 +10,7 @@ interface AbilityTestLabProps {
 }
 
 export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefresh }) => {
-  const [selectedSubTab, setSelectedSubTab] = useState<'named' | 'locations' | 'defense' | 'dominion'>('named');
+  const [selectedSubTab, setSelectedSubTab] = useState<'named' | 'locations' | 'defense' | 'dominion' | 'keywords'>('named');
   const [testLog, setTestLog] = useState<string[]>([]);
 
   const addTestLog = (msg: string) => {
@@ -444,6 +444,17 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
         >
           <Award className="w-3.5 h-3.5" />
           4. Global Dominion Plan (3 Win Conditions)
+        </button>
+        <button
+          onClick={() => setSelectedSubTab('keywords')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            selectedSubTab === 'keywords'
+              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-purple-400" />
+          5. Action Studio Keywords
         </button>
       </div>
 
@@ -965,6 +976,376 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
             >
               Play Global Dominion Plan (Win Game)
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 5: ACTION STUDIO KEYWORDS */}
+      {selectedSubTab === 'keywords' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-800/40 space-y-1">
+            <h3 className="text-sm font-bold text-purple-200 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-purple-400" />
+              Action Studio Keywords Diagnostic Test Bench
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Interactive test suites verifying "Deploy x card_type", "Deploy any x", "Exhaust", "Intercept", "Interrupt", and "Discard at end of turn".
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Keyword 1: Deploy x card_type */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">1. Deploy x card_type</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Free deployment from hand</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Puts into play 1 or more cards from hand of a specific type without paying the card cost (Support, Operative, Location).
+              </p>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  onClick={() => {
+                    // Give P1 two high-cost Operatives in hand
+                    const op1: Card = { id: `free_op1_${Date.now()}`, name: 'Elite Cybercommando', type: 'Operative', cost: 5, off: 4, def: 3 };
+                    const op2: Card = { id: `free_op2_${Date.now()}`, name: 'Deep Cover Assassin', type: 'Operative', cost: 6, off: 5, def: 2 };
+                    p1.hand.push(op1, op2);
+
+                    // Card with ability "Tap: Deploy 2 Operative cards from your hand."
+                    const spawner: Card = {
+                      id: `deploy_op_${Date.now()}`,
+                      name: 'SpecOps Air Drop',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Deploy 2 Operative cards from your hand.'
+                    };
+                    p1.battlefield.push(spawner);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: spawner,
+                      dynamicAbilityEffect: {
+                        abilityText: spawner.abilityText!,
+                        effect: {
+                          type: 'deploy_card',
+                          deployCardType: 'Operative',
+                          deployCount: 2,
+                          amount: 2
+                        },
+                        trigger: 'tap',
+                        requiresTap: true
+                      },
+                      desc: 'Tap: Deploy 2 Operative cards from your hand'
+                    });
+                    addTestLog(`🚀 [Deploy Operatives]: ${res.message}`);
+                    addTestLog(`P1 Battlefield Operatives: ${p1.battlefield.filter(c => c.type === 'Operative').map(c => c.name).join(', ')}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Deploy 2 Operatives"</span>
+                  <span className="text-[10px] font-mono opacity-80">Free Cost</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const loc1: Card = { id: `free_loc1_${Date.now()}`, name: 'Orbital Fortress', type: 'Location', cost: 7, production: 3, cap: 3 };
+                    p1.hand.push(loc1);
+                    const spawner: Card = {
+                      id: `deploy_loc_${Date.now()}`,
+                      name: 'Rapid Engineering',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Deploy 1 Location card from your hand.'
+                    };
+                    p1.battlefield.push(spawner);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: spawner,
+                      dynamicAbilityEffect: {
+                        abilityText: spawner.abilityText!,
+                        effect: {
+                          type: 'deploy_card',
+                          deployCardType: 'Location',
+                          deployCount: 1,
+                          amount: 1
+                        },
+                        trigger: 'tap',
+                        requiresTap: true
+                      },
+                      desc: 'Tap: Deploy 1 Location card from your hand'
+                    });
+                    addTestLog(`🏗️ [Deploy Location]: ${res.message}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Deploy 1 Location"</span>
+                  <span className="text-[10px] font-mono opacity-80">Free Cost</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 1 Variation: Deploy any x */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">Variation: Deploy any x</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Any card type free</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Puts into play 1 or more cards of ANY type from hand without paying card cost.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const c1: Card = { id: `any_c1_${Date.now()}`, name: 'Black Market Syndicate', type: 'Location', cost: 5, production: 2, cap: 2 };
+                    const c2: Card = { id: `any_c2_${Date.now()}`, name: 'Master Infiltrator', type: 'Operative', cost: 4, off: 3, def: 3 };
+                    p1.hand.push(c1, c2);
+
+                    const spawner: Card = {
+                      id: `deploy_any_${Date.now()}`,
+                      name: 'Quantum Teleporter',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Deploy any 2 cards from your hand.'
+                    };
+                    p1.battlefield.push(spawner);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: spawner,
+                      dynamicAbilityEffect: {
+                        abilityText: spawner.abilityText!,
+                        effect: {
+                          type: 'deploy_card',
+                          deployCardType: 'any',
+                          deployCount: 2,
+                          amount: 2
+                        },
+                        trigger: 'tap',
+                        requiresTap: true
+                      },
+                      desc: 'Tap: Deploy any 2 cards from your hand'
+                    });
+                    addTestLog(`✨ [Deploy Any 2]: ${res.message}`);
+                    addTestLog(`P1 In-Play: ${p1.battlefield.map(c => `${c.name} (${c.type})`).join(', ')}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Deploy any 2"</span>
+                  <span className="text-[10px] font-mono opacity-80">Free Any</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 2: Exhaust */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/40">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">2. Exhaust</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Disable opponent card</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Puts opponent's card into Exhaust condition to prevent it from producing resources or using special abilities.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    // Ensure P2 has an active ready operative
+                    let enemy = p2.battlefield.find(c => !c.exhausted);
+                    if (!enemy) {
+                      enemy = {
+                        id: `ready_enemy_${Date.now()}`,
+                        name: 'Enemy Heavy Drone',
+                        type: 'Operative',
+                        cost: 3,
+                        off: 3,
+                        def: 3,
+                        exhausted: false
+                      };
+                      p2.battlefield.push(enemy);
+                    }
+
+                    const taser: Card = {
+                      id: `exhaust_card_${Date.now()}`,
+                      name: 'EMP Disruptor',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: "Tap: Exhaust 1 opponent's card."
+                    };
+                    p1.battlefield.push(taser);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: taser,
+                      targetCard: enemy,
+                      dynamicAbilityEffect: {
+                        abilityText: taser.abilityText!,
+                        effect: {
+                          type: 'exhaust_card',
+                          amount: 1,
+                          exhaustCount: 1,
+                          exhaustTargetType: 'card'
+                        },
+                        trigger: 'tap',
+                        requiresTap: true
+                      },
+                      desc: `Tap: Exhaust ${enemy.name}`
+                    });
+                    addTestLog(`💤 [Exhaust Effect]: ${res.message}`);
+                    addTestLog(`Enemy ${enemy.name} status: ${enemy.exhausted ? 'EXHAUSTED (Disabled)' : 'Ready'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Exhaust Opponent Card"</span>
+                  <span className="text-[10px] font-mono opacity-80">Disable</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 3: Intercept */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/40">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">3. Intercept</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Defend against attacks</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Card can be deployed or use its special ability out of turn when attacked with a special ability or Operation.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const interceptCard: Card = {
+                      id: `intercept_${Date.now()}`,
+                      name: 'Interceptor Guard',
+                      type: 'Support',
+                      cost: 1,
+                      def: 3,
+                      isIntercept: true,
+                      abilityText: 'Intercept: Fortify defense by +3 DEF against incoming attack.'
+                    };
+                    p1.hand.push(interceptCard);
+
+                    const res = engine.playDefensiveReactionCard(p1, interceptCard.id);
+                    addTestLog(`🛡️ [Intercept Test]: ${res.message} (DEF Bonus: +${res.defBonus})`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Play Intercept Card"</span>
+                  <span className="text-[10px] font-mono opacity-80">Reaction</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 4: Interrupt */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">4. Interrupt</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Play anytime out-of-turn</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Can be played anytime, out of player's turn, even when not being attacked!
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    p1.current_turn_coins = Math.max(3, p1.current_turn_coins);
+                    const interruptCard: Card = {
+                      id: `interrupt_${Date.now()}`,
+                      name: 'Sabotage Network',
+                      type: 'Support',
+                      cost: 1,
+                      isInterrupt: true,
+                      abilityText: 'Interrupt: Siphon 2 coins from Opponent.'
+                    };
+                    p1.hand.push(interruptCard);
+
+                    const actions = engine.getInterruptActions(p1, p2);
+                    addTestLog(`⚡ [Interrupt Query]: Found ${actions.length} valid interrupt action(s) for P1.`);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'INTERRUPT_ACTION',
+                      card: interruptCard,
+                      cardId: interruptCard.id,
+                      cardName: interruptCard.name,
+                      desc: `Interrupt: Play ${interruptCard.name} out-of-turn`
+                    });
+                    addTestLog(`⚡ [Interrupt Executed]: ${res.message}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-zinc-950 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Trigger Interrupt Anytime"</span>
+                  <span className="text-[10px] font-mono opacity-80">Out-of-Turn</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 5: Discard at end of turn */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40">
+                  <Flame className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">5. Discard at end of turn</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Auto-discard cleanup</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Cards with this keyword are automatically discarded at the end of the player's turn.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const tempCard: Card = {
+                      id: `temp_drone_${Date.now()}`,
+                      name: 'Temporary Assault Drone',
+                      type: 'Operative',
+                      cost: 1,
+                      off: 3,
+                      def: 1,
+                      discardAtEndOfTurn: true,
+                      abilityText: 'Deploy: +1 OFF. Discard at end of turn.'
+                    };
+                    p1.battlefield.push(tempCard);
+                    addTestLog(`Deployed ${tempCard.name} with [Discard at end of turn] to P1 battlefield.`);
+
+                    // Trigger pass turn to test auto-discard
+                    engine.passTurn();
+                    const stillInPlay = p1.battlefield.some(c => c.id === tempCard.id);
+                    const inDiscard = p1.discard_pile.some(c => c.id === tempCard.id);
+                    addTestLog(`⏳ [End of Turn Test]: In play: ${stillInPlay ? 'YES' : 'NO'}, Discarded: ${inDiscard ? 'YES (Auto-discarded!)' : 'NO'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Discard at end of turn"</span>
+                  <span className="text-[10px] font-mono opacity-80">Auto Cleanup</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

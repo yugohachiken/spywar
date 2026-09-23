@@ -27,6 +27,9 @@ export interface Card {
   specialAbility?: string;
   abilityText?: string;
   canPlayOnDefense?: boolean;
+  isInterrupt?: boolean; // Card with Interrupt can be played anytime, out of player's turn, even when not being attacked
+  isIntercept?: boolean; // Card with Intercept can be deployed or use special ability out of turn when attacked with card's special ability or operation
+  discardAtEndOfTurn?: boolean; // Card is automatically discarded at the end of the player's turn
   // Mission specific fields
   points?: number;
   req?: number;
@@ -75,6 +78,11 @@ export interface Player {
   completed_missions: Mission[];
   mission_points: number;
   telemetry: TurnTelemetry;
+  pendingFreeDeploys?: {
+    count: number;
+    cardType: 'Operative' | 'Location' | 'Support' | 'any';
+    sourceCardName: string;
+  };
 }
 
 export type TurnPhase = 'DRAW' | 'OPERATIONS' | 'CLEANUP';
@@ -89,7 +97,11 @@ export type ActionType =
   | 'DISCARD_CARD'
   | 'ADVANCE_PHASE'
   | 'PASS'
-  | 'DYNAMIC_ABILITY';
+  | 'DYNAMIC_ABILITY'
+  | 'DEPLOY_FREE_CARD'
+  | 'FINISH_FREE_DEPLOY'
+  | 'EXHAUST_CARD'
+  | 'INTERRUPT_ACTION';
 
 export interface Action {
   type: ActionType;
@@ -108,6 +120,7 @@ export interface Action {
   desc: string;
   disabled?: boolean;
   disabledReason?: string;
+  isSpecialAbilityAttack?: boolean; // True if launched via a card's special ability (can only be defended by Intercept/Interrupt)
 }
 
 export interface LogEntry {
@@ -133,6 +146,7 @@ export interface RoomDefenseData {
   attackerNames: string;
   readyOpIds: string[];
   selectedDefenderIds: string[];
+  isSpecialAbilityAttack?: boolean;
 }
 
 export interface MultiplayerRoomDoc {

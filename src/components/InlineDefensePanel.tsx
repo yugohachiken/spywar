@@ -19,6 +19,7 @@ interface InlineDefensePanelProps {
   onConfirmDefense: (defenderIds: string[], bonusDef?: number) => void;
   onDeclineDefense: () => void;
   isOnlinePeerWaiting?: boolean;
+  isSpecialAbilityAttack?: boolean;
 }
 
 export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
@@ -35,16 +36,22 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   onToggleDefender,
   onConfirmDefense,
   onDeclineDefense,
-  isOnlinePeerWaiting = false
+  isOnlinePeerWaiting = false,
+  isSpecialAbilityAttack = false
 }) => {
   const [bonusDef, setBonusDef] = React.useState(0);
   const [playedReactions, setPlayedReactions] = React.useState<{ name: string; bonus: number }[]>([]);
 
-  // Eligible out-of-turn defense cards in hand
-  const reactionCards = defender.hand.filter(
-    c => c.canPlayOnDefense || c.type === 'Support' || c.specialAbility === 'assemble_strike_defense' ||
-    (c.abilityText && AbilityParserService.getInstance().parseAbility(c.abilityText).canPlayOnDefense)
-  );
+  // Eligible out-of-turn defense cards in hand (Support, Intercept, Interrupt, or reactive abilities)
+  const reactionCards = defender.hand.filter(c => {
+    if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt) return true;
+    if (c.specialAbility === 'assemble_strike_defense') return true;
+    if (c.abilityText) {
+      const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText);
+      return parsed.canPlayOnDefense || parsed.isIntercept || parsed.isInterrupt || parsed.trigger === 'intercept' || parsed.trigger === 'interrupt';
+    }
+    return !isSpecialAbilityAttack && c.type === 'Support';
+  });
 
   const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike') => {
     const res = engine.playDefensiveReactionCard(defender, card.id, subChoice);
@@ -54,23 +61,35 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
     }
   };
 
+  // Rule: An attack using a card's special abilities can ONLY be defended by using a card with an Interrupt or Intercept special ability.
+  // It cannot normally be defended using a Defense Team Operative cards.
+  const eligibleReadyOps = readyOps.filter(c => {
+    if (!isSpecialAbilityAttack) return true;
+    const parsed = (c.abilityText || c.specialAbility) ? AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility) : null;
+    return c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt;
+  });
+
   // If target is specified and defending against assassination, calculate target's innate defense
   const isAss = threatType === 'ass';
   const targetAlreadyInDefenders = targetCard ? selectedDefenderIds.includes(targetCard.id) : false;
   const isTargetExh = targetCard?.exhausted ?? false;
-  const targetInnateDef = (isAss && targetCard && !targetAlreadyInDefenders)
-    ? ((targetCard.def || 1) + (targetCard.tempDefenseBuff || 0) + (isTargetExh ? 0 : (targetCard.ass || 0)))
+  const targetCanDefendSpecial = !isSpecialAbilityAttack || (targetCard && (
+    targetCard.isIntercept || targetCard.isInterrupt ||
+    (targetCard.abilityText && AbilityParserService.getInstance().parseAbility(targetCard.abilityText).isIntercept)
+  ));
+  const targetInnateDef = (isAss && targetCard && !targetAlreadyInDefenders && targetCanDefendSpecial)
+    ? ((targetCard.def || 1) + (targetCard.tempDefenseBuff || 0) + (targetCard.techTokens || 0) + (isTargetExh ? 0 : (targetCard.ass || 0)))
     : 0;
 
   // Defenders defense contribution
-  const selectedOps = readyOps.filter(c => selectedDefenderIds.includes(c.id));
+  const selectedOps = eligibleReadyOps.filter(c => selectedDefenderIds.includes(c.id));
   const defendersTotalDef = selectedOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0);
 
   // Total defense against the strike
   const totalCombinedDefense = defendersTotalDef + targetInnateDef + bonusDef;
   const isThwarted = totalCombinedDefense >= incomingAttack;
 
-  const allPossibleDef = readyOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0) + targetInnateDef + bonusDef;
+  const allPossibleDef = eligibleReadyOps.reduce((acc, c) => acc + engine.calculateOperativeDefense(c, threatType).totalDef, 0) + targetInnateDef + bonusDef;
 
   return (
     <div className="p-4 rounded-xl bg-gradient-to-r from-red-950/70 via-zinc-900 to-zinc-950 border-2 border-red-500/80 shadow-2xl space-y-3.5 animate-in fade-in slide-in-from-top-3 duration-200">
@@ -101,6 +120,16 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Special Ability Attack Warning Banner */}
+      {isSpecialAbilityAttack && (
+        <div className="p-2.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-xs font-mono text-amber-300 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            <strong>Special Ability Attack:</strong> Can only be defended using a card with an <strong>Interrupt</strong> or <strong>Intercept</strong> ability. Regular Defense Team Operatives cannot normally defend.
+          </span>
+        </div>
+      )}
 
       {/* Target & Threat Info */}
       <div className="p-3 rounded-lg bg-red-950/40 border border-red-500/30 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
@@ -244,9 +273,9 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onConfirmDefense(readyOps.map(c => c.id), bonusDef)}
+                onClick={() => onConfirmDefense(eligibleReadyOps.map(c => c.id), bonusDef)}
                 className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-mono font-bold transition-colors border border-amber-500/30"
-                title="Shortcut to commit all available Ready Operative cards to defend"
+                title="Shortcut to commit all available eligible Operative cards to defend"
               >
                 Defend with All ({allPossibleDef} DEF)
               </button>

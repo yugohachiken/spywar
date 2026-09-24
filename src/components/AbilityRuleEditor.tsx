@@ -78,6 +78,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   const [builderDiscardEndTurn, setBuilderDiscardEndTurn] = useState<boolean>(false);
   const [statType, setStatType] = useState<'off' | 'def' | 'both_choice'>('both_choice');
   const [statAmount, setStatAmount] = useState<number>(1);
+  const [builderTokenType, setBuilderTokenType] = useState<'tech' | 'weapon' | 'suit' | 'powered_armor' | 'power_suit'>('tech');
   const [techTokenAmount, setTechTokenAmount] = useState<number>(1);
   const [skillTokenChoice, setSkillTokenChoice] = useState<'any' | 'ass' | 'raid' | 'sub'>('any');
   const [drawAmount, setDrawAmount] = useState<number>(1);
@@ -134,12 +135,20 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         });
       }
     } else if (builderEffectCategory === 'tech_token') {
+      const tokenLabels: Record<string, string> = {
+        tech: 'Tech',
+        weapon: 'Weapon',
+        suit: 'Suit',
+        powered_armor: 'Powered armor',
+        power_suit: 'Power Suit'
+      };
+      const label = tokenLabels[builderTokenType] || 'Tech';
       effects.push({
         type: 'grant_token',
-        tokenType: 'tech',
+        tokenType: builderTokenType,
         stat: 'both',
         amount: techTokenAmount,
-        rawPhrase: `+${techTokenAmount}/+${techTokenAmount} Tech token`
+        rawPhrase: `+${techTokenAmount}/+${techTokenAmount} ${label} token`
       });
     } else if (builderEffectCategory === 'skill') {
       if (skillTokenChoice === 'any') {
@@ -292,13 +301,29 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     let currentBuff = { ...sandboxOpBuff };
 
     for (const eff of parsed.effects) {
-      if (eff.type === 'grant_token' && (eff.tokenType === 'tech' || eff.stat === 'both')) {
+      const isCombatToken = eff.type === 'grant_token' && (
+        eff.tokenType === 'tech' || 
+        eff.tokenType === 'weapon' || 
+        eff.tokenType === 'suit' || 
+        eff.tokenType === 'powered_armor' || 
+        eff.tokenType === 'power_suit' || 
+        eff.stat === 'both'
+      );
+      if (isCombatToken) {
         const amt = eff.amount || 1;
         currentBuff.tech += amt;
         currentBuff.off += amt;
         currentBuff.def += amt;
-        currentBuff.tokens.push(`+${amt}/+${amt} Tech`);
-        logs.push(`⚡ Granted +${amt}/+${amt} Tech Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def}.`);
+        const nameMap: Record<string, string> = {
+          tech: 'Tech',
+          weapon: 'Weapon',
+          suit: 'Suit',
+          powered_armor: 'Powered Armor',
+          power_suit: 'Power Suit'
+        };
+        const tName = nameMap[eff.tokenType || 'tech'] || 'Combat';
+        currentBuff.tokens.push(`+${amt}/+${amt} ${tName}`);
+        logs.push(`⚡ Granted +${amt}/+${amt} ${tName} Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def}.`);
       } else if (eff.type === 'buff_stat') {
         if (eff.stat === 'off') {
           currentBuff.off += eff.amount || 1;

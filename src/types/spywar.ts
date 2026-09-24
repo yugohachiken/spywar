@@ -23,6 +23,12 @@ export interface Card {
   tempOffenseBuff?: number;
   tempDefenseBuff?: number;
   techTokens?: number; // +x/+x Tech token bonus (buffs both OFF and DEF)
+  weaponTokens?: number; // +x/+x Weapon token bonus (buffs both OFF and DEF)
+  suitTokens?: number; // +x/+x Suit token bonus (buffs both OFF and DEF)
+  poweredArmorTokens?: number; // +x/+x Powered armor token bonus (buffs both OFF and DEF)
+  powerSuitTokens?: number; // +x/+x Power Suit token bonus (buffs both OFF and DEF)
+  discardToken?: boolean; // Card with Discard token is discarded at end of player's turn
+  appliedTokens?: string[]; // Log of unique token types applied to this card
   // Abilities
   specialAbility?: string;
   abilityText?: string;

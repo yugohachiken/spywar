@@ -78,7 +78,7 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
     (targetCard.abilityText && AbilityParserService.getInstance().parseAbility(targetCard.abilityText).isIntercept)
   ));
   const targetInnateDef = (isAss && targetCard && !targetAlreadyInDefenders && targetCanDefendSpecial)
-    ? ((targetCard.def || 1) + (targetCard.tempDefenseBuff || 0) + (targetCard.techTokens || 0) + (isTargetExh ? 0 : (targetCard.ass || 0)))
+    ? ((targetCard.def || 1) + (targetCard.tempDefenseBuff || 0) + engine.getCardStatTokensBuff(targetCard) + (isTargetExh ? 0 : (targetCard.ass || 0)))
     : 0;
 
   // Defenders defense contribution

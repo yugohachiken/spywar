@@ -1346,6 +1346,161 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 </button>
               </div>
             </div>
+
+            {/* Keyword 6: Studio Action Tokens (+x/+x Weapon, Suit, Armor, Power Suit, Discard token) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">6. Studio Action Tokens</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Weapon, Suit, Armor, Discard</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Places Weapon, Suit, Powered armor, Power Suit (+x/+x), or Discard token. Disallows stacking duplicate tokens. Discard token card is discarded at turn end.
+              </p>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  onClick={() => {
+                    const targetOp: Card = { id: `token_target_${Date.now()}`, name: 'Vanguard Operative', type: 'Operative', cost: 0, off: 2, def: 2 };
+                    p1.battlefield.push(targetOp);
+
+                    const bufferCard: Card = {
+                      id: `buff_src_${Date.now()}`,
+                      name: 'Armory Requisition',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Give target friendly operative +1/+1 Weapon token.'
+                    };
+                    p1.battlefield.push(bufferCard);
+
+                    // 1. Grant Weapon token
+                    const res1 = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: bufferCard,
+                      targetCard: targetOp,
+                      targetId: targetOp.id,
+                      targetName: targetOp.name,
+                      subChoice: 'token_weapon',
+                      dynamicAbilityEffect: {
+                        abilityText: bufferCard.abilityText!,
+                        effect: { type: 'grant_token', tokenType: 'weapon', amount: 1, stat: 'both' }
+                      }
+                    });
+                    addTestLog(`🗡️ [Grant Weapon Token]: ${res1.message} (Weapon tokens: ${targetOp.weaponTokens})`);
+
+                    // 2. Test duplicate stacking prevention (should fail)
+                    const resDup = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: bufferCard,
+                      targetCard: targetOp,
+                      targetId: targetOp.id,
+                      targetName: targetOp.name,
+                      subChoice: 'token_weapon',
+                      dynamicAbilityEffect: {
+                        abilityText: bufferCard.abilityText!,
+                        effect: { type: 'grant_token', tokenType: 'weapon', amount: 1, stat: 'both' }
+                      }
+                    });
+                    addTestLog(`🚫 [Stacking Duplicate Check]: ${resDup.message} (Success: ${resDup.success})`);
+
+                    // 3. Grant Discard token
+                    const resDiscardToken = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: bufferCard,
+                      targetCard: targetOp,
+                      targetId: targetOp.id,
+                      targetName: targetOp.name,
+                      subChoice: 'token_discard',
+                      dynamicAbilityEffect: {
+                        abilityText: 'Tap: Place Discard token on target card.',
+                        effect: { type: 'grant_token', tokenType: 'discard', amount: 1 }
+                      }
+                    });
+                    addTestLog(`⏳ [Grant Discard Token]: ${resDiscardToken.message}`);
+
+                    // 4. Test end of turn cleanup with Discard token
+                    engine.passTurn();
+                    const stillInPlay = p1.battlefield.some(c => c.id === targetOp.id);
+                    const inDiscard = p1.discard_pile.some(c => c.id === targetOp.id);
+                    addTestLog(`⏳ [Discard Token Turn End]: In play: ${stillInPlay ? 'YES' : 'NO'}, In Discard Pile: ${inDiscard ? 'YES (Cleaned up!)' : 'NO'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Weapon &amp; Discard Tokens"</span>
+                  <span className="text-[10px] font-mono opacity-80">Tokens</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 7: Opponent Discard Keywords */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                  <Flame className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">7. Opponent Discard Keywords</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Hand &amp; Battlefield Discard</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                "Discard x card in play" and "Discard x card from hand" force opponent to discard from field or hand.
+              </p>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  onClick={() => {
+                    // Seed opponent hand and field
+                    const oppCardInPlay: Card = { id: `opp_b_${Date.now()}`, name: 'Enemy Outpost', type: 'Location', cost: 0 };
+                    const oppCardInHand: Card = { id: `opp_h_${Date.now()}`, name: 'Enemy Secret Orders', type: 'Support', cost: 0 };
+                    p2.battlefield.push(oppCardInPlay);
+                    p2.hand.push(oppCardInHand);
+
+                    const disruptor: Card = {
+                      id: `disrupt_${Date.now()}`,
+                      name: 'Infiltration Team',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Discard 1 card in play.'
+                    };
+                    p1.battlefield.push(disruptor);
+
+                    // Test Discard 1 card in play
+                    const resField = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: disruptor,
+                      targetCard: oppCardInPlay,
+                      targetId: oppCardInPlay.id,
+                      targetName: oppCardInPlay.name,
+                      dynamicAbilityEffect: {
+                        abilityText: 'Tap: Discard 1 card in play.',
+                        effect: { type: 'discard_field', amount: 1 }
+                      }
+                    });
+                    addTestLog(`💥 [Discard card in play]: ${resField.message}`);
+                    addTestLog(`P2 Battlefield has ${oppCardInPlay.name}: ${p2.battlefield.some(c => c.id === oppCardInPlay.id) ? 'YES' : 'NO (Discarded!)'}`);
+
+                    // Test Discard 1 card from hand
+                    const resHand = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: disruptor,
+                      dynamicAbilityEffect: {
+                        abilityText: 'Tap: Discard 1 card from hand.',
+                        effect: { type: 'discard_hand', amount: 1 }
+                      }
+                    });
+                    addTestLog(`✋ [Discard card from hand]: ${resHand.message}`);
+                    addTestLog(`P2 Hand count: ${p2.hand.length}, P2 Discard pile: ${p2.discard_pile.map(c => c.name).join(', ')}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Discard Field &amp; Hand"</span>
+                  <span className="text-[10px] font-mono opacity-80">Opponent</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

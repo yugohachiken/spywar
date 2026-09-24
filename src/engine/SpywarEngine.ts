@@ -607,12 +607,13 @@ export class SpywarEngine {
     player.pendingFreeDeploys = undefined;
     opponent.pendingFreeDeploys = undefined;
 
-    // Discard at end of turn keyword enforcement:
-    // Cards with this keyword are automatically discarded at the end of the player's turn
+    // Discard at end of turn keyword and Discard token enforcement:
+    // Cards with "Discard at end of turn" or with a Discard token are automatically discarded at the end of the player's turn
     const endTurnDiscards: Card[] = [];
+    // 1. Player's battlefield
     for (let i = player.battlefield.length - 1; i >= 0; i--) {
       const c = player.battlefield[i];
-      let shouldDiscard = c.discardAtEndOfTurn;
+      let shouldDiscard = c.discardAtEndOfTurn || c.discardToken;
       if (!shouldDiscard && (c.abilityText || c.specialAbility)) {
         const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility);
         if (parsed.discardAtEndOfTurn) {
@@ -625,8 +626,17 @@ export class SpywarEngine {
         endTurnDiscards.push(c);
       }
     }
+    // 2. Opponent's battlefield (cards that received a Discard token)
+    for (let i = opponent.battlefield.length - 1; i >= 0; i--) {
+      const c = opponent.battlefield[i];
+      if (c.discardToken) {
+        opponent.battlefield.splice(i, 1);
+        opponent.discard_pile.push(c);
+        endTurnDiscards.push(c);
+      }
+    }
     if (endTurnDiscards.length > 0) {
-      this.log(player.pid, 'END-TURN-DISCARD', `Discarded [${endTurnDiscards.map(c => c.name).join(', ')}] from battlefield to discard pile (Keyword: Discard at end of turn).`);
+      this.log(player.pid, 'END-TURN-DISCARD', `Discarded [${endTurnDiscards.map(c => c.name).join(', ')}] from battlefield to discard pile (Keyword: Discard at end of turn / Discard token).`);
     }
 
     // Check "Observer" mission: no offensive operations this turn
@@ -1190,7 +1200,7 @@ export class SpywarEngine {
 
           // (1) Assassination Operations
           for (const target of enemyOps) {
-            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1206,7 +1216,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1225,7 +1235,7 @@ export class SpywarEngine {
 
           // (2) Raid Operations
           for (const target of raidTargets) {
-            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1241,7 +1251,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1260,7 +1270,7 @@ export class SpywarEngine {
 
           // (3) Subterfuge Operations
           if (opponent.hand.length > 0) {
-            const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1273,7 +1283,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1778,7 +1788,7 @@ export class SpywarEngine {
 
       // 4e. Assassinate (Solo & Team)
       for (const target of enemyOps) {
-        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1794,7 +1804,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1813,7 +1823,7 @@ export class SpywarEngine {
 
       // 4f. Raid (Solo & Team)
       for (const target of raidTargets) {
-        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1829,7 +1839,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1848,7 +1858,7 @@ export class SpywarEngine {
 
       // 4g. Subterfuge (Solo & Team)
       if (opponent.hand.length > 0) {
-        const soloOff = (op.off || 1) + (op.techTokens || 0) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -1861,7 +1871,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + (rop.techTokens || 0) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -1980,20 +1990,41 @@ export class SpywarEngine {
       });
     }
 
-    // Discard Field
+    // Discard Field ("Discard x card in play")
     const discardFieldEff = parsed.effects.find(e => e.type === 'discard_field');
     if (discardFieldEff) {
       const isOppFieldEmpty = opponent.battlefield.length === 0;
-      actions.push({
-        type: 'DYNAMIC_ABILITY',
-        cardId: card.id,
-        cardName: card.name,
-        card,
-        dynamicAbilityEffect: { effect: discardFieldEff, ...baseDynamicData },
-        disabled: !hasEnoughCoins || isOppFieldEmpty,
-        disabledReason: !hasEnoughCoins ? costDisabledReason : `${opponent.name} has no cards in play`,
-        desc: `${prefix}: Force ${opponent.name} to discard ${discardFieldEff.amount || 2} card(s) in play`
-      });
+      const amt = discardFieldEff.amount || 1;
+      if (isOppFieldEmpty) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          dynamicAbilityEffect: { effect: discardFieldEff, ...baseDynamicData },
+          disabled: true,
+          disabledReason: `${opponent.name} has no cards in play`,
+          desc: `${prefix}: Force ${opponent.name} to discard ${amt} card${amt > 1 ? 's' : ''} in play (None in play)`
+        });
+      } else {
+        // Individual targeting options for each opponent card in play
+        for (const targetCard of opponent.battlefield) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            targetId: targetCard.id,
+            targetName: targetCard.name,
+            targetCard,
+            subChoice: `discard_field_${targetCard.id}`,
+            dynamicAbilityEffect: { effect: { ...discardFieldEff, targetCardId: targetCard.id }, ...baseDynamicData },
+            disabled: !hasEnoughCoins,
+            disabledReason: costDisabledReason,
+            desc: `${prefix}: Force ${opponent.name} to discard ${targetCard.name} in play`
+          });
+        }
+      }
     }
 
     // Spawn Token
@@ -2113,11 +2144,45 @@ export class SpywarEngine {
       }
     }
 
-    // Token Buffs (+x/+x Tech token OR Skill tokens)
+    // Token Buffs (+x/+x Tech, Weapon, Suit, Powered armor, Power Suit, Discard, or Skill tokens)
     const tokenEff = parsed.effects.find(e => e.type === 'grant_token');
     if (tokenEff) {
       const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-      if (friendlyOps.length === 0) {
+      const tokenType = tokenEff.tokenType || (tokenEff.stat === 'both' ? 'tech' : 'skill');
+
+      if (tokenType === 'discard') {
+        // Discard token: placed on top of a card (friendly operative or opponent in-play card)
+        const allCandidates = [...friendlyOps, ...opponent.battlefield];
+        if (allCandidates.length === 0) {
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            disabled: true,
+            disabledReason: 'No valid cards in play to receive Discard token',
+            desc: `${prefix} (Unavailable: No cards in play)`
+          });
+        } else {
+          for (const target of allCandidates) {
+            const hasDiscardToken = !!target.discardToken;
+            actions.push({
+              type: 'DYNAMIC_ABILITY',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              targetId: target.id,
+              targetName: target.name,
+              targetCard: target,
+              subChoice: 'token_discard',
+              dynamicAbilityEffect: { effect: tokenEff, ...baseDynamicData },
+              disabled: !hasEnoughCoins || hasDiscardToken,
+              disabledReason: !hasEnoughCoins ? costDisabledReason : `${target.name} already has a Discard token (Stacking same token disallowed)`,
+              desc: `${prefix}: Place Discard token on ${target.name}${hasDiscardToken ? ' (Already has Discard token)' : ''}`
+            });
+          }
+        }
+      } else if (friendlyOps.length === 0) {
         actions.push({
           type: 'DYNAMIC_ABILITY',
           cardId: card.id,
@@ -2128,11 +2193,29 @@ export class SpywarEngine {
           desc: `${prefix} (Unavailable: No friendly operatives in play)`
         });
       } else {
-        if (tokenEff.tokenType === 'tech' || tokenEff.stat === 'both') {
-          // +x/+x Tech token buffs both OFF and DEF by x
-          const amt = tokenEff.amount || 1;
+        const amt = tokenEff.amount || 1;
+
+        if (tokenType === 'tech' || tokenType === 'weapon' || tokenType === 'suit' || tokenType === 'powered_armor' || tokenType === 'power_suit' || tokenEff.stat === 'both') {
+          // Stat tokens buff both OFF and DEF by x. Same tokens cannot be stacked together on a single card.
+          // If a player has more than one valid Operative card, the Player selects which Operative card receives the token.
+          let tokenLabel = 'Tech';
+          let tokenKey: 'techTokens' | 'weaponTokens' | 'suitTokens' | 'poweredArmorTokens' | 'powerSuitTokens' = 'techTokens';
+          if (tokenType === 'weapon') {
+            tokenLabel = 'Weapon';
+            tokenKey = 'weaponTokens';
+          } else if (tokenType === 'suit') {
+            tokenLabel = 'Suit';
+            tokenKey = 'suitTokens';
+          } else if (tokenType === 'powered_armor') {
+            tokenLabel = 'Powered armor';
+            tokenKey = 'poweredArmorTokens';
+          } else if (tokenType === 'power_suit') {
+            tokenLabel = 'Power Suit';
+            tokenKey = 'powerSuitTokens';
+          }
+
           for (const op of friendlyOps) {
-            const hasTechToken = (op.techTokens || 0) > 0;
+            const hasSameToken = ((op[tokenKey] as number) || 0) > 0;
             actions.push({
               type: 'DYNAMIC_ABILITY',
               cardId: card.id,
@@ -2141,20 +2224,21 @@ export class SpywarEngine {
               targetId: op.id,
               targetName: op.name,
               targetCard: op,
-              subChoice: 'token_tech',
+              subChoice: `token_${tokenType}`,
               dynamicAbilityEffect: { effect: tokenEff, ...baseDynamicData },
-              disabled: !hasEnoughCoins || hasTechToken,
-              disabledReason: !hasEnoughCoins ? costDisabledReason : `${op.name} already has a Tech token (Stacking same token disallowed)`,
-              desc: `${prefix}: Grant ${op.name} +${amt}/+${amt} Tech token${hasTechToken ? ' (Already has Tech token)' : ''}`
+              disabled: !hasEnoughCoins || hasSameToken,
+              disabledReason: !hasEnoughCoins ? costDisabledReason : `${op.name} already has a ${tokenLabel} token (Stacking same token disallowed)`,
+              desc: `${prefix}: Select ${op.name} to receive +${amt}/+${amt} ${tokenLabel} token${hasSameToken ? ' (Already has this token)' : ''}`
             });
           }
         } else {
           // Standard Skill token (ASS / RAID / SUB)
+          // Rule: If an Operative card already had Raid skill, it can no longer receive a Raid token (same for ASS and SUB).
           const skillsToOffer: ('ass' | 'raid' | 'sub')[] = tokenEff.skillOptions || (tokenEff.skill ? [tokenEff.skill] : ['ass', 'raid', 'sub']);
           for (const op of friendlyOps) {
             for (const sk of skillsToOffer) {
               const hasSkill = (op[sk] || 0) > 0;
-              const canGive = this.config.allowDuplicateSkillTokens || !hasSkill;
+              const canGive = !hasSkill; // Stacking same skill token or granting skill to card that already had it is disallowed
               actions.push({
                 type: 'DYNAMIC_ABILITY',
                 cardId: card.id,
@@ -2166,8 +2250,8 @@ export class SpywarEngine {
                 subChoice: `token_${sk}`,
                 dynamicAbilityEffect: { effect: { ...tokenEff, skill: sk }, ...baseDynamicData },
                 disabled: !hasEnoughCoins || !canGive,
-                disabledReason: !hasEnoughCoins ? costDisabledReason : `${op.name} already has ${sk.toUpperCase()} skill (Duplicate tokens disallowed)`,
-                desc: `${prefix}: Grant ${op.name} +1 ${sk.toUpperCase()} token${!canGive ? ' (Already has skill)' : ''}`
+                disabledReason: !hasEnoughCoins ? costDisabledReason : `${op.name} already has ${sk.toUpperCase()} skill (Cannot receive duplicate ${sk.toUpperCase()} token)`,
+                desc: `${prefix}: Select ${op.name} to receive +1 ${sk.toUpperCase()} token${!canGive ? ' (Already has skill)' : ''}`
               });
             }
           }
@@ -2680,14 +2764,27 @@ export class SpywarEngine {
       }
 
       if (effect.type === 'discard_field') {
-        const count = effect.amount || 2;
+        const count = effect.amount || 1;
+        // Check if specific card was selected
+        const targetToDiscard = action.targetCard || opponent.battlefield.find(c => c.id === action.targetId);
+        if (targetToDiscard) {
+          const tIdx = opponent.battlefield.findIndex(c => c.id === targetToDiscard.id);
+          if (tIdx !== -1) {
+            opponent.battlefield.splice(tIdx, 1);
+            opponent.discard_pile.push(targetToDiscard);
+            this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} forced ${opponent.name} to discard ${targetToDiscard.name} in play (Keyword: Discard x card in play).`);
+            return { success: true, message: `Forced ${opponent.name} to discard ${targetToDiscard.name} from play.` };
+          }
+        }
         let discardedCount = 0;
+        const droppedNames: string[] = [];
         for (let i = 0; i < count && opponent.battlefield.length > 0; i++) {
           const dropped = opponent.battlefield.pop()!;
           opponent.discard_pile.push(dropped);
+          droppedNames.push(dropped.name);
           discardedCount++;
         }
-        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} discarded ${discardedCount} card(s) from ${opponent.name}'s field.`);
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} forced ${opponent.name} to discard ${discardedCount} card(s) in play [${droppedNames.join(', ')}] (Keyword: Discard x card in play).`);
         return { success: true, message: `Discarded ${discardedCount} card(s) from play.` };
       }
 
@@ -2708,19 +2805,74 @@ export class SpywarEngine {
       if (effect.type === 'grant_token') {
         const target = action.targetCard || card;
         const amt = effect.amount || 1;
-        if (effect.tokenType === 'tech' || effect.stat === 'both') {
+        const tokenType = effect.tokenType || (effect.stat === 'both' ? 'tech' : 'skill');
+
+        if (tokenType === 'tech') {
           if ((target.techTokens || 0) > 0) {
             return { success: false, message: `${target.name} already has a Tech token (Stacking same token is not allowed).` };
           }
           target.techTokens = (target.techTokens || 0) + amt;
+          target.appliedTokens = [...(target.appliedTokens || []), 'tech'];
           this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Tech token on ${target.name} (Total Tech: +${target.techTokens}/+${target.techTokens}).`);
           return { success: true, message: `Placed +${amt}/+${amt} Tech token on ${target.name}.` };
         }
+
+        if (tokenType === 'weapon') {
+          if ((target.weaponTokens || 0) > 0) {
+            return { success: false, message: `${target.name} already has a Weapon token (Stacking same token is not allowed).` };
+          }
+          target.weaponTokens = (target.weaponTokens || 0) + amt;
+          target.appliedTokens = [...(target.appliedTokens || []), 'weapon'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Weapon token on ${target.name}.`);
+          return { success: true, message: `Placed +${amt}/+${amt} Weapon token on ${target.name}.` };
+        }
+
+        if (tokenType === 'suit') {
+          if ((target.suitTokens || 0) > 0) {
+            return { success: false, message: `${target.name} already has a Suit token (Stacking same token is not allowed).` };
+          }
+          target.suitTokens = (target.suitTokens || 0) + amt;
+          target.appliedTokens = [...(target.appliedTokens || []), 'suit'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Suit token on ${target.name}.`);
+          return { success: true, message: `Placed +${amt}/+${amt} Suit token on ${target.name}.` };
+        }
+
+        if (tokenType === 'powered_armor') {
+          if ((target.poweredArmorTokens || 0) > 0) {
+            return { success: false, message: `${target.name} already has a Powered armor token (Stacking same token is not allowed).` };
+          }
+          target.poweredArmorTokens = (target.poweredArmorTokens || 0) + amt;
+          target.appliedTokens = [...(target.appliedTokens || []), 'powered_armor'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Powered armor token on ${target.name}.`);
+          return { success: true, message: `Placed +${amt}/+${amt} Powered armor token on ${target.name}.` };
+        }
+
+        if (tokenType === 'power_suit') {
+          if ((target.powerSuitTokens || 0) > 0) {
+            return { success: false, message: `${target.name} already has a Power Suit token (Stacking same token is not allowed).` };
+          }
+          target.powerSuitTokens = (target.powerSuitTokens || 0) + amt;
+          target.appliedTokens = [...(target.appliedTokens || []), 'power_suit'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Power Suit token on ${target.name}.`);
+          return { success: true, message: `Placed +${amt}/+${amt} Power Suit token on ${target.name}.` };
+        }
+
+        if (tokenType === 'discard') {
+          if (target.discardToken) {
+            return { success: false, message: `${target.name} already has a Discard token (Stacking same token is not allowed).` };
+          }
+          target.discardToken = true;
+          target.appliedTokens = [...(target.appliedTokens || []), 'discard'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed Discard token on ${target.name}. Card will be discarded at end of player's turn.`);
+          return { success: true, message: `Placed Discard token on ${target.name}.` };
+        }
+
         const sk = (effect.skill || 'ass') as 'ass' | 'raid' | 'sub';
-        if ((target[sk] || 0) > 0 && !this.config.allowDuplicateSkillTokens) {
+        if ((target[sk] || 0) > 0) {
           return { success: false, message: `${target.name} already has ${sk.toUpperCase()} skill (Cannot place duplicate skill token).` };
         }
         target[sk] = (target[sk] || 0) + amt;
+        target.appliedTokens = [...(target.appliedTokens || []), `skill_${sk}`];
         this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt} ${sk.toUpperCase()} token on ${target.name}.`);
         return { success: true, message: `Placed +${amt} ${sk.toUpperCase()} token on ${target.name}.` };
       }
@@ -2937,7 +3089,7 @@ export class SpywarEngine {
       const op = action.card!;
       const isGeneric = op.specialAbility === 'sacrifice_discard_hand_or_field';
       const threatType = action.subChoice === 'discard_hand' ? 'sub' : 'ass';
-      const incomingAttack = (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (threatType === 'ass' ? (op.ass || 2) : (op.sub || 2)); // 6
+      const incomingAttack = (op.off || 4) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (threatType === 'ass' ? (op.ass || 2) : (op.sub || 2)); // 6
       const defRes = this.resolveDefense(opponent, threatType, incomingAttack, defenderCardIds || action.defenderCardIds, bonusDefense);
 
       // Card is sacrificed from play regardless
@@ -3004,7 +3156,7 @@ export class SpywarEngine {
       // 1. Boksoon Specialized Ability: Discard enemy operative with Assassin >= 1
       if (action.opType === 'boksoon_ass') {
         const target = action.targetCard!;
-        const atk = (op.off || 4) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.ass || 3); // Boksoon ATK
+        const atk = (op.off || 4) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.ass || 3); // Boksoon ATK
         const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -3026,7 +3178,7 @@ export class SpywarEngine {
 
       // 2. Mata Hari Specialized Ability: Steal random card from enemy hand
       if (action.opType === 'mata_hari_steal') {
-        const atk = (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.sub || 3); // Mata Hari ATK
+        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.sub || 3); // Mata Hari ATK
         const defRes = this.resolveDefense(opponent, 'sub', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -3050,7 +3202,7 @@ export class SpywarEngine {
 
       // 3. Ghost Specialized Activation: Siphon 2 resources
       if (action.opType === 'ghost_siphon') {
-        const atk = (op.off || 3) + (op.techTokens || 0) + (op.tempOffenseBuff || 0) + (op.raid || 3); // Ghost ATK
+        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.raid || 3); // Ghost ATK
         const defRes = this.resolveDefense(opponent, 'raid', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
@@ -3079,7 +3231,7 @@ export class SpywarEngine {
 
         let atk = 0;
         for (const a of attackers) {
-          atk += (a.off || 1) + (a.techTokens || 0) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+          atk += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
@@ -3089,7 +3241,7 @@ export class SpywarEngine {
         // Calculate target's innate defense if target was not already one of the active defending operatives
         const isExh = target.exhausted;
         const targetAlreadyInDefenders = defRes.defenders.some(d => d.id === target.id);
-        const targetInnateDef = targetAlreadyInDefenders ? 0 : ((target.def || 1) + (target.techTokens || 0) + (isExh ? 0 : (target.ass || 0)) + (target.tempDefenseBuff || 0));
+        const targetInnateDef = targetAlreadyInDefenders ? 0 : ((target.def || 1) + this.getCardStatTokensBuff(target) + (isExh ? 0 : (target.ass || 0)) + (target.tempDefenseBuff || 0));
         const effectiveDef = defRes.totalDef + targetInnateDef;
 
         // Helper to discard card from player battlefield to discard pile
@@ -3160,7 +3312,7 @@ export class SpywarEngine {
         let totalRaidOff = 0;
         let totalRaidSkill = 0;
         for (const a of attackers) {
-          totalRaidOff += (a.off || 1) + (a.techTokens || 0) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+          totalRaidOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0);
           totalRaidSkill += (a.raid || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
@@ -3236,7 +3388,7 @@ export class SpywarEngine {
         let totalSubOff = 0;
         let totalSubSkill = 0;
         for (const a of attackers) {
-          totalSubOff += (a.off || 1) + (a.techTokens || 0) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+          totalSubOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0);
           totalSubSkill += (a.sub || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
@@ -3430,13 +3582,21 @@ export class SpywarEngine {
   }
 
   // ==========================================
+  // STAT TOKENS SYSTEM
+  // Calculates combined stat bonus from Tech, Weapon, Suit, Powered Armor, Power Suit tokens
+  // ==========================================
+  public getCardStatTokensBuff(card: Card): number {
+    return (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+  }
+
+  // ==========================================
   // DEFENSIVE TEAM SYSTEM (Rule 2)
   // Calculates individual operative defense contribution:
   // Base DEF + TempBuff + 1 point for each applicable Skill rating
   // ==========================================
   calculateOperativeDefense(card: Card, threatType: 'ass' | 'sub' | 'raid'): { baseDef: number; tempBuff: number; skillBonus: number; totalDef: number } {
     const baseDef = card.def || 1;
-    const tempBuff = (card.tempDefenseBuff || 0) + (card.techTokens || 0);
+    const tempBuff = (card.tempDefenseBuff || 0) + this.getCardStatTokensBuff(card);
     let skillRating = 0;
     if (threatType === 'ass') skillRating = card.ass || 0;
     else if (threatType === 'sub') skillRating = card.sub || 0;

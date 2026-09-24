@@ -276,47 +276,79 @@ export const ZoomedCardModal: React.FC = () => {
             </div>
 
             {/* Operative Combat Stats (Big 32px Font) */}
-            {card?.type === 'Operative' && (
-              <div className="my-4 grid grid-cols-2 gap-3 p-3.5 sm:p-4 rounded-xl bg-black/60 border border-zinc-800 font-mono">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-red-950/80 border border-red-600/50">
-                    <Sword className="w-6 h-6 text-red-400" />
+            {card?.type === 'Operative' && (() => {
+              const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+              return (
+                <div className="my-4 grid grid-cols-2 gap-3 p-3.5 sm:p-4 rounded-xl bg-black/60 border border-zinc-800 font-mono">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-red-950/80 border border-red-600/50">
+                      <Sword className="w-6 h-6 text-red-400" />
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-red-300 font-semibold">Offense</div>
+                      <div className="text-2xl sm:text-3xl font-extrabold text-red-200">
+                        {(card.off || 0) + (card.tempOffenseBuff || 0) + tokenBuff}
+                        {(card.tempOffenseBuff || 0) + tokenBuff > 0 ? (
+                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempOffenseBuff || 0) + tokenBuff}</span>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-red-300 font-semibold">Offense</div>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-red-200">
-                      {(card.off || 0) + (card.tempOffenseBuff || 0) + (card.techTokens || 0)}
-                      {(card.tempOffenseBuff || 0) + (card.techTokens || 0) > 0 ? (
-                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
-                      ) : null}
+
+                  <div className="flex items-center gap-3 justify-end">
+                    <div className="text-right">
+                      <div className="text-[11px] uppercase tracking-wider text-blue-300 font-semibold">Defense</div>
+                      <div className="text-2xl sm:text-3xl font-extrabold text-blue-200">
+                        {(card.def || 0) + (card.tempDefenseBuff || 0) + tokenBuff}
+                        {(card.tempDefenseBuff || 0) + tokenBuff > 0 ? (
+                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempDefenseBuff || 0) + tokenBuff}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-blue-950/80 border border-blue-600/50">
+                      <Shield className="w-6 h-6 text-blue-400" />
                     </div>
                   </div>
                 </div>
+              );
+            })()}
 
-                <div className="flex items-center gap-3 justify-end">
-                  <div className="text-right">
-                    <div className="text-[11px] uppercase tracking-wider text-blue-300 font-semibold">Defense</div>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-blue-200">
-                      {(card.def || 0) + (card.tempDefenseBuff || 0) + (card.techTokens || 0)}
-                      {(card.tempDefenseBuff || 0) + (card.techTokens || 0) > 0 ? (
-                        <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-blue-950/80 border border-blue-600/50">
-                    <Shield className="w-6 h-6 text-blue-400" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Espionage Specialized Skills Badges & Tech Tokens */}
+            {/* Espionage Specialized Skills Badges & Tokens */}
             {card?.type === 'Operative' && (
               <div className="flex flex-wrap items-center gap-2 mb-4">
                 {(card.techTokens || 0) > 0 && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950 text-cyan-300 border-2 border-cyan-600/60 font-mono font-bold text-xs sm:text-sm">
                     <Sparkles className="w-4 h-4 text-cyan-400" />
                     <span>Tech Token +{card.techTokens}/+{card.techTokens}</span>
+                  </div>
+                )}
+                {(card.weaponTokens || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950 text-red-300 border-2 border-red-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Sword className="w-4 h-4 text-red-400" />
+                    <span>Weapon Token +{card.weaponTokens}/+{card.weaponTokens}</span>
+                  </div>
+                )}
+                {(card.suitTokens || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950 text-indigo-300 border-2 border-indigo-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Shield className="w-4 h-4 text-indigo-400" />
+                    <span>Suit Token +{card.suitTokens}/+{card.suitTokens}</span>
+                  </div>
+                )}
+                {(card.poweredArmorTokens || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950 text-emerald-300 border-2 border-emerald-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Shield className="w-4 h-4 text-emerald-400" />
+                    <span>Powered Armor +{card.poweredArmorTokens}/+{card.poweredArmorTokens}</span>
+                  </div>
+                )}
+                {(card.powerSuitTokens || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-950 text-violet-300 border-2 border-violet-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Sparkles className="w-4 h-4 text-violet-400" />
+                    <span>Power Suit +{card.powerSuitTokens}/+{card.powerSuitTokens}</span>
+                  </div>
+                )}
+                {card.discardToken && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 border-2 border-amber-500 font-mono font-bold text-xs sm:text-sm animate-pulse">
+                    <span>⏳ Discard Token (Card discards at end of turn)</span>
                   </div>
                 )}
                 {(card.ass || 0) > 0 && (

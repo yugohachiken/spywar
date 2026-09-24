@@ -154,31 +154,59 @@ export const CardView: React.FC<CardViewProps> = ({
       </div>
 
       {/* Operative Combat Stats / Location Capacity */}
-      {card.type === 'Operative' && (
-        <div className="grid grid-cols-2 gap-1 py-1 px-1.5 rounded bg-black/40 border border-zinc-800/80 my-0.5 font-mono text-[11px]">
-          <div className="flex items-center gap-1 text-red-300">
-            <Sword className="w-3 h-3 text-red-400" />
-            <span>{(card.off || 0) + (card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
-            {(card.tempOffenseBuff || 0) + (card.techTokens || 0) > 0 ? (
-              <span className="text-emerald-400 text-[9px]">+{(card.tempOffenseBuff || 0) + (card.techTokens || 0)}</span>
-            ) : null}
+      {card.type === 'Operative' && (() => {
+        const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+        return (
+          <div className="grid grid-cols-2 gap-1 py-1 px-1.5 rounded bg-black/40 border border-zinc-800/80 my-0.5 font-mono text-[11px]">
+            <div className="flex items-center gap-1 text-red-300">
+              <Sword className="w-3 h-3 text-red-400" />
+              <span>{(card.off || 0) + (card.tempOffenseBuff || 0) + tokenBuff}</span>
+              {(card.tempOffenseBuff || 0) + tokenBuff > 0 ? (
+                <span className="text-emerald-400 text-[9px]">+{(card.tempOffenseBuff || 0) + tokenBuff}</span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1 text-blue-300 justify-end">
+              <Shield className="w-3 h-3 text-blue-400" />
+              <span>{(card.def || 0) + (card.tempDefenseBuff || 0) + tokenBuff}</span>
+              {(card.tempDefenseBuff || 0) + tokenBuff > 0 ? (
+                <span className="text-emerald-400 text-[9px]">+{(card.tempDefenseBuff || 0) + tokenBuff}</span>
+              ) : null}
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-blue-300 justify-end">
-            <Shield className="w-3 h-3 text-blue-400" />
-            <span>{(card.def || 0) + (card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
-            {(card.tempDefenseBuff || 0) + (card.techTokens || 0) > 0 ? (
-              <span className="text-emerald-400 text-[9px]">+{(card.tempDefenseBuff || 0) + (card.techTokens || 0)}</span>
-            ) : null}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* Skills Badges & Tech Tokens */}
+      {/* Skills Badges & Tokens */}
       {card.type === 'Operative' && (
         <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-zinc-300 my-0.5">
           {(card.techTokens || 0) > 0 && (
             <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
               ⚡ Tech: +{card.techTokens}/+{card.techTokens}
+            </span>
+          )}
+          {(card.weaponTokens || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-red-950/80 text-red-300 border border-red-700/50">
+              🗡️ Wpn: +{card.weaponTokens}/+{card.weaponTokens}
+            </span>
+          )}
+          {(card.suitTokens || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/50">
+              🥋 Suit: +{card.suitTokens}/+{card.suitTokens}
+            </span>
+          )}
+          {(card.poweredArmorTokens || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/50">
+              🛡️ Armor: +{card.poweredArmorTokens}/+{card.poweredArmorTokens}
+            </span>
+          )}
+          {(card.powerSuitTokens || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-violet-950/80 text-violet-300 border border-violet-700/50">
+              🦾 PSuit: +{card.powerSuitTokens}/+{card.powerSuitTokens}
+            </span>
+          )}
+          {card.discardToken && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-amber-950/90 text-amber-300 border border-amber-500/60 font-bold animate-pulse">
+              ⏳ Discard Token
             </span>
           )}
           {(card.ass || 0) > 0 && (
@@ -196,6 +224,15 @@ export const CardView: React.FC<CardViewProps> = ({
               <Eye className="w-2.5 h-2.5" /> Sub:{card.sub}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Discard Token for Non-Operatives */}
+      {card.type !== 'Operative' && card.discardToken && (
+        <div className="flex items-center gap-1 text-[9px] font-mono my-0.5">
+          <span className="px-1 py-0.2 rounded bg-amber-950/90 text-amber-300 border border-amber-500/60 font-bold animate-pulse">
+            ⏳ Discard Token (Expires end of turn)
+          </span>
         </div>
       )}
 

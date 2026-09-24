@@ -109,18 +109,72 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: '+x/+x Tech',
     category: 'token',
     syntaxTemplate: '+{x}/+{x} Tech token',
-    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. x can be 1, 2, 3, or more.',
+    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Tech token (duplicate tokens cannot be stacked).',
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
     sampleUsage: 'Tap: Give target friendly operative +1/+1 Tech token.'
   },
   {
+    id: 'kw_weapon_token',
+    keyword: '+x/+x Weapon token',
+    category: 'token',
+    syntaxTemplate: '+{x}/+{x} Weapon token',
+    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Weapon token (duplicate tokens cannot be stacked).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Give target friendly operative +1/+1 Weapon token.'
+  },
+  {
+    id: 'kw_suit_token',
+    keyword: '+x/+x Suit token',
+    category: 'token',
+    syntaxTemplate: '+{x}/+{x} Suit token',
+    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Suit token (duplicate tokens cannot be stacked).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Give target friendly operative +1/+1 Suit token.'
+  },
+  {
+    id: 'kw_powered_armor_token',
+    keyword: '+x/+x Powered armor token',
+    category: 'token',
+    syntaxTemplate: '+{x}/+{x} Powered armor token',
+    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Powered armor token (duplicate tokens cannot be stacked).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Give target friendly operative +1/+1 Powered armor token.'
+  },
+  {
+    id: 'kw_power_suit_token',
+    keyword: '+x/+x Power Suit token',
+    category: 'token',
+    syntaxTemplate: '+{x}/+{x} Power Suit token',
+    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Power Suit token (duplicate tokens cannot be stacked).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Give target friendly operative +1/+1 Power Suit token.'
+  },
+  {
+    id: 'kw_discard_token',
+    keyword: 'Discard token',
+    category: 'token',
+    syntaxTemplate: 'Discard token',
+    description: "Placed on top of a card. A card with a Discard token is discarded at end of player's turn. Duplicate Discard tokens cannot be stacked.",
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Place Discard token on target card in play.'
+  },
+  {
     id: 'kw_skill_token_any',
     keyword: 'Grant Skill Token',
     category: 'token',
     syntaxTemplate: 'grant +1 SUB, ASS, or RAID token',
-    description: 'Grants +1 Subterfuge, Assassin, or Raid skill token to target operative.',
+    description: 'Grants +1 Subterfuge, Assassin, or Raid skill token to target operative. If an operative already has that skill, it can no longer receive that skill token.',
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Tap: grant +1 SUB, ASS, or RAID skill token.'
@@ -173,25 +227,25 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
   },
   {
     id: 'kw_discard_hand',
-    keyword: 'Discard Hand x',
+    keyword: 'Discard x card from hand',
     category: 'effect',
-    syntaxTemplate: 'force Opponent to discard {x} card(s) from hand',
-    description: 'Forces opponent to discard x cards from their hand.',
+    syntaxTemplate: 'discard {x} card(s) from hand',
+    description: 'Forces opponent to discard 1 or more cards from their hand.',
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
-    sampleUsage: 'Tap: force Opponent to discard 1 card from hand.'
+    sampleUsage: 'Tap: discard 1 card from hand.'
   },
   {
     id: 'kw_discard_field',
-    keyword: 'Discard In-Play x',
+    keyword: 'Discard x card in play',
     category: 'effect',
-    syntaxTemplate: 'discard {x} opponent card(s) in play',
-    description: 'Removes and discards x cards from opponent battlefield.',
+    syntaxTemplate: 'discard {x} card(s) in play',
+    description: 'Forces opponent to discard 1 or more cards in play.',
     isBuiltIn: true,
     parameterType: 'number',
-    defaultParamValue: 2,
-    sampleUsage: 'Sacrifice: discard 2 opponent cards in play.'
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: discard 1 card in play.'
   },
   {
     id: 'kw_spawn_token',

@@ -40,7 +40,7 @@ export type AtomicEffectType =
 export interface AtomicEffect {
   type: AtomicEffectType;
   stat?: 'off' | 'def' | 'both';
-  tokenType?: 'skill' | 'tech' | 'custom' | string;
+  tokenType?: 'skill' | 'tech' | 'weapon' | 'suit' | 'powered_armor' | 'power_suit' | 'discard' | 'custom' | string;
   skill?: 'ass' | 'raid' | 'sub';
   skillOptions?: ('ass' | 'raid' | 'sub')[];
   amount?: number;
@@ -270,7 +270,70 @@ export class AbilityParserService {
       }
     }
 
-    // D. +x/+x Tech Tokens (Token that buffs OFF and DEF by x)
+    // D. Stat Tokens (+x/+x Tech, Weapon, Suit, Powered armor, Power Suit, and Discard token)
+    const weaponMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*weapon(?:\s*token[s]?)?/i)
+      || lower.match(/\+?\s*([0-9]+)\s*weapon(?:\s*token[s]?)?/i);
+    if (weaponMatch) {
+      const amt = parseInt(weaponMatch[1]);
+      recognizedKeywords.push(`+${amt}/+${amt} Weapon Token`);
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'weapon',
+        stat: 'both',
+        amount: amt,
+        rawPhrase: `+${amt}/+${amt} Weapon token`
+      });
+      if (targetType === 'none') targetType = 'friendly_op';
+    }
+
+    const powerSuitMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*power\s*suit(?:\s*token[s]?)?/i)
+      || lower.match(/\+?\s*([0-9]+)\s*power\s*suit(?:\s*token[s]?)?/i);
+    if (powerSuitMatch) {
+      const amt = parseInt(powerSuitMatch[1]);
+      recognizedKeywords.push(`+${amt}/+${amt} Power Suit Token`);
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'power_suit',
+        stat: 'both',
+        amount: amt,
+        rawPhrase: `+${amt}/+${amt} Power Suit token`
+      });
+      if (targetType === 'none') targetType = 'friendly_op';
+    }
+
+    const poweredArmorMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*powered\s*armor(?:\s*token[s]?)?/i)
+      || lower.match(/\+?\s*([0-9]+)\s*powered\s*armor(?:\s*token[s]?)?/i);
+    if (poweredArmorMatch) {
+      const amt = parseInt(poweredArmorMatch[1]);
+      recognizedKeywords.push(`+${amt}/+${amt} Powered armor Token`);
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'powered_armor',
+        stat: 'both',
+        amount: amt,
+        rawPhrase: `+${amt}/+${amt} Powered armor token`
+      });
+      if (targetType === 'none') targetType = 'friendly_op';
+    }
+
+    // Suit token (avoid matching power suit)
+    if (!lower.includes('power suit')) {
+      const suitMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*suit(?:\s*token[s]?)?/i)
+        || lower.match(/\+?\s*([0-9]+)\s*suit(?:\s*token[s]?)?/i);
+      if (suitMatch) {
+        const amt = parseInt(suitMatch[1]);
+        recognizedKeywords.push(`+${amt}/+${amt} Suit Token`);
+        effects.push({
+          type: 'grant_token',
+          tokenType: 'suit',
+          stat: 'both',
+          amount: amt,
+          rawPhrase: `+${amt}/+${amt} Suit token`
+        });
+        if (targetType === 'none') targetType = 'friendly_op';
+      }
+    }
+
     const techMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*tech(?:\s*token[s]?)?/i) 
       || lower.match(/\+?\s*([0-9]+)\s*tech(?:\s*token[s]?)?/i);
     if (techMatch) {
@@ -282,6 +345,18 @@ export class AbilityParserService {
         stat: 'both',
         amount: amt,
         rawPhrase: `+${amt}/+${amt} Tech Token`
+      });
+      if (targetType === 'none') targetType = 'friendly_op';
+    }
+
+    // Discard Token (placed on top of a card, discarded at end of turn)
+    if (lower.includes('discard token') || lower.includes('place discard token') || lower.includes('grant discard token')) {
+      recognizedKeywords.push('Discard Token');
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'discard',
+        amount: 1,
+        rawPhrase: 'Discard token'
       });
       if (targetType === 'none') targetType = 'friendly_op';
     }
@@ -330,7 +405,7 @@ export class AbilityParserService {
       targetType = 'opponent';
     }
 
-    // G. Discard from Hand or Discard from Play
+    // G. Discard from Hand or Discard from Play ("Discard x card in play", "Discard x card from hand")
     if (lower.includes('hand') && lower.includes('in play') && (lower.includes('discard') || lower.includes('or'))) {
       recognizedKeywords.push('Choice: Discard Hand OR Discard In-Play');
       effects.push({
@@ -343,19 +418,21 @@ export class AbilityParserService {
       });
       targetType = 'opponent';
     } else {
-      const handDiscardMatch = lower.match(/discard\s*([1-9])\s*(card[s]?\s*)?(from\s*)?(hand)/i);
+      const handDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:from\s*)?(?:hand)/i)
+        || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?from\s*hand/i);
       if (handDiscardMatch || presetConfig?.discardHandCount) {
         const amt = presetConfig?.discardHandCount || (handDiscardMatch ? parseInt(handDiscardMatch[1]) : 1);
-        recognizedKeywords.push(`Force Discard ${amt} From Hand`);
-        effects.push({ type: 'discard_hand', amount: amt });
+        recognizedKeywords.push(`Discard ${amt} Card(s) From Hand`);
+        effects.push({ type: 'discard_hand', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} from hand` });
         targetType = 'opponent';
       }
 
-      const fieldDiscardMatch = lower.match(/discard\s*([1-9])\s*(card[s]?\s*)?(in\s*play|from\s*battlefield)/i);
+      const fieldDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:in\s*play|from\s*battlefield)/i)
+        || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?in\s*play/i);
       if (fieldDiscardMatch || presetConfig?.discardFieldCount) {
         const amt = presetConfig?.discardFieldCount || (fieldDiscardMatch ? parseInt(fieldDiscardMatch[1]) : 1);
-        recognizedKeywords.push(`Discard ${amt} In Play`);
-        effects.push({ type: 'discard_field', amount: amt });
+        recognizedKeywords.push(`Discard ${amt} Card(s) In Play`);
+        effects.push({ type: 'discard_field', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} in play` });
         targetType = 'opponent';
       }
     }
@@ -590,7 +667,17 @@ export class AbilityParserService {
       } else if (eff.type === 'buff_stat') {
         effectPhrases.push(`+${eff.amount || 1} ${eff.stat === 'off' ? 'Offense' : 'Defense'}`);
       } else if (eff.type === 'grant_token') {
-        if (eff.tokenType === 'tech' || eff.stat === 'both') {
+        if (eff.tokenType === 'weapon') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Weapon token`);
+        } else if (eff.tokenType === 'suit') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Suit token`);
+        } else if (eff.tokenType === 'powered_armor') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Powered armor token`);
+        } else if (eff.tokenType === 'power_suit') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Power Suit token`);
+        } else if (eff.tokenType === 'discard') {
+          effectPhrases.push(`place Discard token`);
+        } else if (eff.tokenType === 'tech' || eff.stat === 'both') {
           effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Tech token`);
         } else if (eff.skillOptions && eff.skillOptions.length > 1) {
           effectPhrases.push('grant +1 SUB, ASS, or RAID skill token');
@@ -698,6 +785,11 @@ export class AbilityParserService {
       if (e.type === 'choice') return `Choice [${e.choiceLabels?.join(' / ')}]`;
       if (e.type === 'buff_stat') return `+${e.amount} ${e.stat?.toUpperCase()}`;
       if (e.type === 'grant_token') {
+        if (e.tokenType === 'weapon') return `+${e.amount}/+${e.amount} Weapon Token`;
+        if (e.tokenType === 'suit') return `+${e.amount}/+${e.amount} Suit Token`;
+        if (e.tokenType === 'powered_armor') return `+${e.amount}/+${e.amount} Powered Armor Token`;
+        if (e.tokenType === 'power_suit') return `+${e.amount}/+${e.amount} Power Suit Token`;
+        if (e.tokenType === 'discard') return `Discard Token`;
         if (e.tokenType === 'tech' || e.stat === 'both') {
           return `+${e.amount}/+${e.amount} Tech Token`;
         }

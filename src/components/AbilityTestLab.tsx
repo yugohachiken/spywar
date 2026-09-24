@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SpywarEngine } from '../engine/SpywarEngine';
 import { CardView } from './CardView';
 import { Card } from '../types/spywar';
-import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle } from 'lucide-react';
+import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle, Coins } from 'lucide-react';
 
 interface AbilityTestLabProps {
   engine: SpywarEngine;
@@ -1498,6 +1498,89 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 >
                   <span>Test "Discard Field &amp; Hand"</span>
                   <span className="text-[10px] font-mono opacity-80">Opponent</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 8: Gain Resource & Discard Cost Conversion */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                  <Coins className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-zinc-100">8. Gain Resource &amp; Discard Conversion</h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Gain x Resource / Discard Cost Equal</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                "Gain x resource" &amp; "Gain x resource equal to discarded card cost" (e.g. Tap: Discards 1 card from hand, gain x resource equal to discarded card).
+              </p>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  onClick={() => {
+                    const startCoins = p1.current_turn_coins;
+                    const resGenCard: Card = {
+                      id: `res_gen_${Date.now()}`,
+                      name: 'Aether Refinery',
+                      type: 'Location',
+                      cost: 0,
+                      abilityText: 'Tap: Gain 3 resources.'
+                    };
+                    p1.battlefield.push(resGenCard);
+
+                    // 1. Test Fixed Resource Gain
+                    const resFixed = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: resGenCard,
+                      dynamicAbilityEffect: {
+                        abilityText: 'Tap: Gain 3 resources.',
+                        effect: { type: 'gain_resource', amount: 3 }
+                      }
+                    });
+                    addTestLog(`💎 [Gain 3 Resources]: ${resFixed.message} (Coins: ${startCoins} -> ${p1.current_turn_coins})`);
+
+                    // 2. Test "Discards 1 card from hand, gain x resource equal to discarded card"
+                    const cardToDiscard: Card = {
+                      id: `card_discard_${Date.now()}`,
+                      name: 'Advanced Orbital Prototype',
+                      type: 'Support',
+                      cost: 3
+                    };
+                    p1.hand.push(cardToDiscard);
+
+                    const converterCard: Card = {
+                      id: `converter_${Date.now()}`,
+                      name: 'Scrap Recycler',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Discards 1 card from hand, gain x resource equal to discarded card.'
+                    };
+                    p1.battlefield.push(converterCard);
+
+                    const coinsBeforeDiscard = p1.current_turn_coins;
+                    const resDiscardCost = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: converterCard,
+                      targetCard: cardToDiscard,
+                      targetId: cardToDiscard.id,
+                      targetName: cardToDiscard.name,
+                      dynamicAbilityEffect: {
+                        abilityText: 'Tap: Discards 1 card from hand, gain x resource equal to discarded card.',
+                        effect: { type: 'gain_resource_discard_cost', amount: 1 }
+                      }
+                    });
+
+                    const inDiscardPile = p1.discard_pile.some(c => c.id === cardToDiscard.id);
+                    const stillInHand = p1.hand.some(c => c.id === cardToDiscard.id);
+
+                    addTestLog(`♻️ [Discard for Cost Resources]: ${resDiscardCost.message}`);
+                    addTestLog(`Coins: ${coinsBeforeDiscard} -> ${p1.current_turn_coins} (+${cardToDiscard.cost} gained). In Discard: ${inDiscardPile ? 'YES' : 'NO'}, In Hand: ${stillInHand ? 'YES' : 'NO (Discarded)'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Gain Resources &amp; Discard Conversion"</span>
+                  <span className="text-[10px] font-mono opacity-80">Resources</span>
                 </button>
               </div>
             </div>

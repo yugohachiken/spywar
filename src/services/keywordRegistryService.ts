@@ -248,6 +248,27 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     sampleUsage: 'Tap: discard 1 card in play.'
   },
   {
+    id: 'kw_gain_resource',
+    keyword: 'Gain x resource',
+    category: 'effect',
+    syntaxTemplate: 'gain {x} resource(s)',
+    description: 'Player gains x spendable resources (turn coins).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: gain 2 resources.'
+  },
+  {
+    id: 'kw_gain_resource_equal_discard',
+    keyword: 'Gain x resource equal to discarded card cost',
+    category: 'effect',
+    syntaxTemplate: 'gain resource equal to discarded card cost',
+    description: 'After tapping and discarding a card from hand, Player gains Spendable resources equal to the discarded card\'s printed cost.',
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Discards 1 card from hand, gain x resource equal to discarded card.'
+  },
+  {
     id: 'kw_spawn_token',
     keyword: 'Spawn Token',
     category: 'effect',

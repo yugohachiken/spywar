@@ -33,6 +33,8 @@ export type AtomicEffectType =
   | 'spawn_token'
   | 'intercept_defense'
   | 'produce_coins'
+  | 'gain_resource'
+  | 'gain_resource_discard_cost'
   | 'choice'
   | 'deploy_card'
   | 'exhaust_card';
@@ -405,35 +407,69 @@ export class AbilityParserService {
       targetType = 'opponent';
     }
 
-    // G. Discard from Hand or Discard from Play ("Discard x card in play", "Discard x card from hand")
-    if (lower.includes('hand') && lower.includes('in play') && (lower.includes('discard') || lower.includes('or'))) {
-      recognizedKeywords.push('Choice: Discard Hand OR Discard In-Play');
-      effects.push({
-        type: 'choice',
-        choices: [
-          { type: 'discard_hand', amount: 1, rawPhrase: 'Force discard 1 card from hand' },
-          { type: 'discard_field', amount: 2, rawPhrase: 'Discard 2 cards in play' }
-        ],
-        choiceLabels: ['Discard 1 From Hand', 'Discard 2 Cards In Play']
-      });
-      targetType = 'opponent';
-    } else {
-      const handDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:from\s*)?(?:hand)/i)
-        || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?from\s*hand/i);
-      if (handDiscardMatch || presetConfig?.discardHandCount) {
-        const amt = presetConfig?.discardHandCount || (handDiscardMatch ? parseInt(handDiscardMatch[1]) : 1);
-        recognizedKeywords.push(`Discard ${amt} Card(s) From Hand`);
-        effects.push({ type: 'discard_hand', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} from hand` });
-        targetType = 'opponent';
-      }
+    // G0. Gain Resource Equal to Discarded Card Cost ("Gain x resource equal to discarded card cost", "Discards 1 card from hand, gain x resource equal to discarded card")
+    const gainDiscardCostMatch = lower.match(/(?:gain\s*(?:x\s*)?resource[s]?\s*equal\s*to\s*discarded\s*card(?:\s*cost)?)/i)
+      || lower.match(/(?:gain\s*(?:x\s*)?equal\s*to\s*discarded\s*card(?:\s*cost)?)/i)
+      || lower.match(/gain\s*resource[s]?\s*equal\s*to\s*discard(?:ed)?/i);
 
-      const fieldDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:in\s*play|from\s*battlefield)/i)
-        || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?in\s*play/i);
-      if (fieldDiscardMatch || presetConfig?.discardFieldCount) {
-        const amt = presetConfig?.discardFieldCount || (fieldDiscardMatch ? parseInt(fieldDiscardMatch[1]) : 1);
-        recognizedKeywords.push(`Discard ${amt} Card(s) In Play`);
-        effects.push({ type: 'discard_field', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} in play` });
+    const isDiscardForResource = !!gainDiscardCostMatch || !!lower.match(/discard[s]?\s*([0-9]+)?\s*card[s]?\s*from\s*(?:your\s*)?hand[,\s]+(?:to\s+)?gain\b/i);
+
+    if (gainDiscardCostMatch) {
+      recognizedKeywords.push('Gain x resource equal to discarded card cost');
+      effects.push({
+        type: 'gain_resource_discard_cost',
+        amount: 1,
+        rawPhrase: 'Discards 1 card from hand, gain x resource equal to discarded card'
+      });
+      if (targetType === 'none' || targetType === 'opponent') targetType = 'self';
+    }
+
+    // G1. Gain x Resource (fixed amount)
+    if (!gainDiscardCostMatch) {
+      const gainResMatch = lower.match(/gain\s*([0-9]+)\s*(?:resource[s]?|coin[s]?|spendable[s]?)\b/i);
+      if (gainResMatch) {
+        const amt = parseInt(gainResMatch[1], 10);
+        recognizedKeywords.push(`Gain ${amt} Resource(s)`);
+        effects.push({
+          type: 'gain_resource',
+          amount: amt,
+          rawPhrase: `gain ${amt} resource${amt > 1 ? 's' : ''}`
+        });
+        if (targetType === 'none' || targetType === 'opponent') targetType = 'self';
+      }
+    }
+
+    // G2. Discard from Hand or Discard from Play ("Discard x card in play", "Discard x card from hand")
+    if (!isDiscardForResource) {
+      if (lower.includes('hand') && lower.includes('in play') && (lower.includes('discard') || lower.includes('or'))) {
+        recognizedKeywords.push('Choice: Discard Hand OR Discard In-Play');
+        effects.push({
+          type: 'choice',
+          choices: [
+            { type: 'discard_hand', amount: 1, rawPhrase: 'Force discard 1 card from hand' },
+            { type: 'discard_field', amount: 2, rawPhrase: 'Discard 2 cards in play' }
+          ],
+          choiceLabels: ['Discard 1 From Hand', 'Discard 2 Cards In Play']
+        });
         targetType = 'opponent';
+      } else {
+        const handDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:from\s*)?(?:hand)/i)
+          || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?from\s*hand/i);
+        if (handDiscardMatch || presetConfig?.discardHandCount) {
+          const amt = presetConfig?.discardHandCount || (handDiscardMatch ? parseInt(handDiscardMatch[1]) : 1);
+          recognizedKeywords.push(`Discard ${amt} Card(s) From Hand`);
+          effects.push({ type: 'discard_hand', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} from hand` });
+          targetType = 'opponent';
+        }
+
+        const fieldDiscardMatch = lower.match(/discard\s*([0-9]+)\s*(?:card[s]?\s*)?(?:in\s*play|from\s*battlefield)/i)
+          || lower.match(/force\s*(?:opponent\s*to\s*)?discard\s*([0-9]+)\s*(?:card[s]?\s*)?in\s*play/i);
+        if (fieldDiscardMatch || presetConfig?.discardFieldCount) {
+          const amt = presetConfig?.discardFieldCount || (fieldDiscardMatch ? parseInt(fieldDiscardMatch[1]) : 1);
+          recognizedKeywords.push(`Discard ${amt} Card(s) In Play`);
+          effects.push({ type: 'discard_field', amount: amt, rawPhrase: `discard ${amt} card${amt > 1 ? 's' : ''} in play` });
+          targetType = 'opponent';
+        }
       }
     }
 
@@ -698,6 +734,10 @@ export class AbilityParserService {
         effectPhrases.push(`fortify defense by +${eff.amount || 2} DEF during attack interception`);
       } else if (eff.type === 'produce_coins') {
         effectPhrases.push(`produce +${eff.amount || 1} coins`);
+      } else if (eff.type === 'gain_resource') {
+        effectPhrases.push(`gain ${eff.amount || 1} resource${(eff.amount || 1) > 1 ? 's' : ''}`);
+      } else if (eff.type === 'gain_resource_discard_cost') {
+        effectPhrases.push('Discards 1 card from hand, gain x resource equal to discarded card');
       } else if (eff.type === 'deploy_card') {
         const cnt = eff.deployCount || eff.amount || 1;
         if (eff.deployCardType === 'any' || !eff.deployCardType) {
@@ -801,6 +841,9 @@ export class AbilityParserService {
       if (e.type === 'discard_field') return `Opponent Discard Field (${e.amount})`;
       if (e.type === 'spawn_token') return `Spawn ${e.tokenName}`;
       if (e.type === 'intercept_defense') return `+${e.amount} DEF Intercept`;
+      if (e.type === 'produce_coins') return `Produce +${e.amount || 1} Coins`;
+      if (e.type === 'gain_resource') return `Gain ${e.amount || 1} Resource(s)`;
+      if (e.type === 'gain_resource_discard_cost') return `Gain Resources Equal to Discarded Card Cost`;
       if (e.type === 'deploy_card') {
         const cnt = e.deployCount || e.amount || 1;
         const target = e.deployCardType === 'any' || !e.deployCardType ? 'Any' : e.deployCardType;

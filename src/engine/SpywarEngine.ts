@@ -2057,6 +2057,56 @@ export class SpywarEngine {
       });
     }
 
+    // Gain x Resource (fixed amount)
+    const gainResEff = parsed.effects.find(e => e.type === 'gain_resource');
+    if (gainResEff) {
+      const amt = gainResEff.amount || 1;
+      actions.push({
+        type: 'DYNAMIC_ABILITY',
+        cardId: card.id,
+        cardName: card.name,
+        card,
+        dynamicAbilityEffect: { effect: gainResEff, ...baseDynamicData },
+        disabled: !hasEnoughCoins,
+        disabledReason: costDisabledReason,
+        desc: `${prefix}: Gain +${amt} Spendable Resource${amt > 1 ? 's' : ''}`
+      });
+    }
+
+    // Gain x Resource equal to discarded card cost
+    const gainDiscardCostEff = parsed.effects.find(e => e.type === 'gain_resource_discard_cost');
+    if (gainDiscardCostEff) {
+      if (player.hand.length === 0) {
+        actions.push({
+          type: 'DYNAMIC_ABILITY',
+          cardId: card.id,
+          cardName: card.name,
+          card,
+          disabled: true,
+          disabledReason: 'No cards in hand to discard',
+          desc: `${prefix}: Discard 1 card from hand to gain resource equal to cost (Hand is empty)`
+        });
+      } else {
+        for (const handCard of player.hand) {
+          const resGained = handCard.cost || 0;
+          actions.push({
+            type: 'DYNAMIC_ABILITY',
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            targetId: handCard.id,
+            targetName: handCard.name,
+            targetCard: handCard,
+            subChoice: `discard_for_resource_${handCard.id}`,
+            dynamicAbilityEffect: { effect: gainDiscardCostEff, ...baseDynamicData },
+            disabled: !hasEnoughCoins,
+            disabledReason: costDisabledReason,
+            desc: `${prefix}: Discard ${handCard.name} (Cost: ${handCard.cost}) to gain +${resGained} Spendable Resource${resGained === 1 ? '' : 's'}`
+          });
+        }
+      }
+    }
+
     // Choice (e.g. +1 OFF or +1 DEF)
     const choiceEff = parsed.effects.find(e => e.type === 'choice');
     if (choiceEff && choiceEff.choices) {
@@ -2423,10 +2473,10 @@ export class SpywarEngine {
                 player.current_turn_coins += stolen;
                 this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: siphoned ${stolen} coin(s).`);
               }
-            } else if (eff.type === 'produce_coins') {
+            } else if (eff.type === 'produce_coins' || eff.type === 'gain_resource') {
               const amt = eff.amount || 1;
               player.current_turn_coins += amt;
-              this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: produced +${amt} coin(s).`);
+              this.log(player.pid, 'DYNAMIC-DEPLOY', `${cardToDeploy.name} On-Deploy: gained +${amt} resource(s).`);
             } else if (eff.type === 'buff_stat') {
               const amt = eff.amount || 1;
               if (eff.stat === 'off') {
@@ -2908,11 +2958,36 @@ export class SpywarEngine {
         return { success: true, message: `Deployed ${token.name}.` };
       }
 
-      if (effect.type === 'produce_coins') {
+      if (effect.type === 'produce_coins' || effect.type === 'gain_resource') {
         const amt = effect.amount || 1;
         player.current_turn_coins += amt;
-        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} generated +${amt} coin(s).`);
-        return { success: true, message: `Generated +${amt} coin(s).` };
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} gained +${amt} spendable resource(s).`);
+        return { success: true, message: `Gained +${amt} spendable resource(s).` };
+      }
+
+      if (effect.type === 'gain_resource_discard_cost') {
+        let handCard = action.targetCard || player.hand.find(c => c.id === action.targetId);
+        if (!handCard && player.hand.length > 0) {
+          handCard = player.hand[0];
+        }
+        if (!handCard) {
+          return { success: false, message: 'No card available in hand to discard.' };
+        }
+
+        const handIdx = player.hand.findIndex(c => c.id === handCard!.id);
+        if (handIdx !== -1) {
+          player.hand.splice(handIdx, 1);
+        }
+        player.discard_pile.push(handCard);
+
+        const gainedResources = handCard.cost || 0;
+        player.current_turn_coins += gainedResources;
+
+        this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} discarded ${handCard.name} (Cost: ${handCard.cost}) from hand, gaining +${gainedResources} spendable resource(s).`);
+        return { 
+          success: true, 
+          message: `Discarded ${handCard.name} (Cost: ${handCard.cost}) and gained +${gainedResources} spendable resource(s).` 
+        };
       }
 
       if (effect.type === 'deploy_card') {

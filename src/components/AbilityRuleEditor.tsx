@@ -70,7 +70,9 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   // Visual Builder State
   const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense' | 'intercept' | 'interrupt'>('tap');
   const [builderTarget, setBuilderTarget] = useState<AbilityTargetType>('friendly_op');
-  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust'>('buff');
+  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust' | 'gain_resource'>('buff');
+  const [gainResourceType, setGainResourceType] = useState<'fixed' | 'discard_cost'>('fixed');
+  const [gainResourceAmount, setGainResourceAmount] = useState<number>(2);
   const [deployTargetType, setDeployTargetType] = useState<'Operative' | 'Location' | 'Support' | 'any'>('Operative');
   const [deployCount, setDeployCount] = useState<number>(2);
   const [exhaustCount, setExhaustCount] = useState<number>(1);
@@ -78,7 +80,6 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   const [builderDiscardEndTurn, setBuilderDiscardEndTurn] = useState<boolean>(false);
   const [statType, setStatType] = useState<'off' | 'def' | 'both_choice'>('both_choice');
   const [statAmount, setStatAmount] = useState<number>(1);
-  const [builderTokenType, setBuilderTokenType] = useState<'tech' | 'weapon' | 'suit' | 'powered_armor' | 'power_suit'>('tech');
   const [techTokenAmount, setTechTokenAmount] = useState<number>(1);
   const [skillTokenChoice, setSkillTokenChoice] = useState<'any' | 'ass' | 'raid' | 'sub'>('any');
   const [drawAmount, setDrawAmount] = useState<number>(1);
@@ -135,20 +136,12 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         });
       }
     } else if (builderEffectCategory === 'tech_token') {
-      const tokenLabels: Record<string, string> = {
-        tech: 'Tech',
-        weapon: 'Weapon',
-        suit: 'Suit',
-        powered_armor: 'Powered armor',
-        power_suit: 'Power Suit'
-      };
-      const label = tokenLabels[builderTokenType] || 'Tech';
       effects.push({
         type: 'grant_token',
-        tokenType: builderTokenType,
+        tokenType: 'tech',
         stat: 'both',
         amount: techTokenAmount,
-        rawPhrase: `+${techTokenAmount}/+${techTokenAmount} ${label} token`
+        rawPhrase: `+${techTokenAmount}/+${techTokenAmount} Tech token`
       });
     } else if (builderEffectCategory === 'skill') {
       if (skillTokenChoice === 'any') {
@@ -209,6 +202,20 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         exhaustCount: exhaustCount,
         exhaustTargetType: exhaustTargetType
       });
+    } else if (builderEffectCategory === 'gain_resource') {
+      if (gainResourceType === 'discard_cost') {
+        effects.push({
+          type: 'gain_resource_discard_cost',
+          amount: 1,
+          rawPhrase: 'Discards 1 card from hand, gain x resource equal to discarded card'
+        });
+      } else {
+        effects.push({
+          type: 'gain_resource',
+          amount: gainResourceAmount,
+          rawPhrase: `gain ${gainResourceAmount} resource${gainResourceAmount > 1 ? 's' : ''}`
+        });
+      }
     }
 
     const isTapPay = builderTrigger === 'tap_pay';
@@ -301,29 +308,13 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     let currentBuff = { ...sandboxOpBuff };
 
     for (const eff of parsed.effects) {
-      const isCombatToken = eff.type === 'grant_token' && (
-        eff.tokenType === 'tech' || 
-        eff.tokenType === 'weapon' || 
-        eff.tokenType === 'suit' || 
-        eff.tokenType === 'powered_armor' || 
-        eff.tokenType === 'power_suit' || 
-        eff.stat === 'both'
-      );
-      if (isCombatToken) {
+      if (eff.type === 'grant_token' && (eff.tokenType === 'tech' || eff.stat === 'both')) {
         const amt = eff.amount || 1;
         currentBuff.tech += amt;
         currentBuff.off += amt;
         currentBuff.def += amt;
-        const nameMap: Record<string, string> = {
-          tech: 'Tech',
-          weapon: 'Weapon',
-          suit: 'Suit',
-          powered_armor: 'Powered Armor',
-          power_suit: 'Power Suit'
-        };
-        const tName = nameMap[eff.tokenType || 'tech'] || 'Combat';
-        currentBuff.tokens.push(`+${amt}/+${amt} ${tName}`);
-        logs.push(`⚡ Granted +${amt}/+${amt} ${tName} Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def}.`);
+        currentBuff.tokens.push(`+${amt}/+${amt} Tech`);
+        logs.push(`⚡ Granted +${amt}/+${amt} Tech Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def}.`);
       } else if (eff.type === 'buff_stat') {
         if (eff.stat === 'off') {
           currentBuff.off += eff.amount || 1;
@@ -645,6 +636,20 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 >
                   +Discard at end of turn
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Gain ${chipParamX} resource${chipParamX > 1 ? 's' : ''}.`)}
+                  className="px-2 py-0.5 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Gain {chipParamX} Resource(s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Discards 1 card from hand, gain x resource equal to discarded card.`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Discard Hand for Equal Resources
+                </button>
               </div>
             </div>
           </div>
@@ -774,7 +779,8 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 { id: 'spawn', label: '👥 Spawn Token' },
                 { id: 'defense', label: '🛡️ Intercept DEF' },
                 { id: 'deploy', label: '🚀 Deploy Free' },
-                { id: 'exhaust', label: '💤 Exhaust Card' }
+                { id: 'exhaust', label: '💤 Exhaust Card' },
+                { id: 'gain_resource', label: '💎 Gain Resource' }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -1032,6 +1038,54 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 </div>
                 <div className="col-span-2 text-[11px] text-purple-300 bg-purple-950/40 p-2 rounded border border-purple-800/50">
                   💤 <strong>Keyword Effect:</strong> Put {exhaustCount} opponent's {exhaustTargetType === 'card' ? 'card(s)' : `${exhaustTargetType}(s)`} to <strong>Exhaust condition</strong> to prevent resource production or special abilities!
+                </div>
+              </div>
+            )}
+
+            {builderEffectCategory === 'gain_resource' && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 mb-1">Resource Gain Mode</label>
+                    <select
+                      value={gainResourceType}
+                      onChange={e => setGainResourceType(e.target.value as any)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                    >
+                      <option value="fixed">Fixed Spendable Amount ("Gain x resource")</option>
+                      <option value="discard_cost">Equal to Discarded Card Cost</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 mb-1">
+                      {gainResourceType === 'fixed' ? 'Resource Amount (x)' : 'Mode Details'}
+                    </label>
+                    {gainResourceType === 'fixed' ? (
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={gainResourceAmount}
+                        onChange={e => setGainResourceAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-emerald-400 font-bold text-center"
+                      />
+                    ) : (
+                      <div className="text-xs text-amber-400 font-bold py-1">
+                        Determined by Card Cost
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className={`text-[11px] p-2 rounded border ${
+                  gainResourceType === 'fixed'
+                    ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
+                    : 'text-amber-300 bg-amber-950/40 border-amber-800/50'
+                }`}>
+                  {gainResourceType === 'fixed' ? (
+                    <span>💎 <strong>Keyword Effect:</strong> Player gains <strong>{gainResourceAmount} Spendable resource(s)</strong> (turn coins).</span>
+                  ) : (
+                    <span>💎 <strong>Keyword Effect:</strong> Player discards 1 card from hand and gains <strong>Spendable resources equal to the discarded card's printed cost</strong>.</span>
+                  )}
                 </div>
               </div>
             )}

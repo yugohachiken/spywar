@@ -507,9 +507,14 @@ func execute_action(action_dict: Dictionary) -> bool:
 
 		ActionType.PLAY_CARD:
 			var card: CardData = action_dict.get("card")
-			var cost = card.cost
-			if player.affiliation and player.affiliation.special_ability == CardData.SpecialAbility.AFF_MK_DISCOUNT_OP and card.card_type == CardData.CardType.OPERATIVE:
-				cost = maxi(0, cost - 1)
+			var discount = 0
+			if card.card_type == CardData.CardType.OPERATIVE:
+				if player.affiliation and player.affiliation.special_ability == CardData.SpecialAbility.AFF_MK_DISCOUNT_OP:
+					discount += 1
+				for bf in player.battlefield:
+					if bf.special_ability == CardData.SpecialAbility.AFF_MK_DISCOUNT_OP or (bf.rules_text and "operative cost 1 less" in bf.rules_text.to_lower()):
+						discount += 1
+			var cost = maxi(0, card.cost - discount)
 				
 			if not player.spend_coins(cost):
 				return false

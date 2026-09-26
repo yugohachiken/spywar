@@ -70,9 +70,11 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   // Visual Builder State
   const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense' | 'intercept' | 'interrupt'>('tap');
   const [builderTarget, setBuilderTarget] = useState<AbilityTargetType>('friendly_op');
-  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust' | 'gain_resource'>('buff');
+  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust' | 'gain_resource' | 'cost_discount'>('buff');
   const [gainResourceType, setGainResourceType] = useState<'fixed' | 'discard_cost'>('fixed');
   const [gainResourceAmount, setGainResourceAmount] = useState<number>(2);
+  const [discountCardType, setDiscountCardType] = useState<'Operative' | 'Location' | 'Support' | 'any'>('Operative');
+  const [discountAmount, setDiscountAmount] = useState<number>(1);
   const [deployTargetType, setDeployTargetType] = useState<'Operative' | 'Location' | 'Support' | 'any'>('Operative');
   const [deployCount, setDeployCount] = useState<number>(2);
   const [exhaustCount, setExhaustCount] = useState<number>(1);
@@ -216,11 +218,19 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
           rawPhrase: `gain ${gainResourceAmount} resource${gainResourceAmount > 1 ? 's' : ''}`
         });
       }
+    } else if (builderEffectCategory === 'cost_discount') {
+      effects.push({
+        type: 'cost_discount',
+        discountCardType: discountCardType,
+        discountAmount: discountAmount,
+        amount: discountAmount,
+        rawPhrase: `${discountCardType} cost ${discountAmount} less resource to deploy`
+      });
     }
 
     const isTapPay = builderTrigger === 'tap_pay';
     const isPassivePay = builderTrigger === 'passive_pay';
-    const isPassiveOnly = builderTrigger === 'passive';
+    const isPassiveOnly = builderTrigger === 'passive' || builderEffectCategory === 'cost_discount';
     const requiresPay = isTapPay || isPassivePay;
     const finalTrigger: AbilityTriggerType = 
       isPassivePay || isPassiveOnly ? 'passive' : 
@@ -229,7 +239,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
 
     const generated = parser.generateStandardizedText({
       trigger: finalTrigger,
-      targetType: builderEffectCategory === 'exhaust' ? 'opponent' : builderTarget,
+      targetType: builderEffectCategory === 'exhaust' ? 'opponent' : builderEffectCategory === 'cost_discount' ? 'none' : builderTarget,
       effects,
       costCoins: requiresPay ? Math.max(1, costCoins) : undefined,
       isPassive: isPassiveOnly || isPassivePay,
@@ -352,6 +362,10 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
       } else if (eff.type === 'exhaust_card') {
         const cnt = eff.amount || 1;
         logs.push(`💤 Exhaust Keyword Activated: Changed ${cnt} opponent's card(s) to Exhaust condition to prevent resource production or special abilities!`);
+      } else if (eff.type === 'cost_discount') {
+        const cType = eff.discountCardType || 'Operative';
+        const amt = eff.discountAmount || eff.amount || 1;
+        logs.push(`🏷️ Passive Cost Discount: Friendly ${cType} cards cost ${amt} less resource to deploy (e.g. 3-cost Operatives deploy for ${Math.max(0, 3 - amt)} spendables).`);
       }
     }
 
@@ -650,6 +664,13 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 >
                   +Discard Hand for Equal Resources
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Operative cost ${chipParamX} less resource to deploy.`)}
+                  className="px-2 py-0.5 rounded bg-teal-950/80 hover:bg-teal-900 text-teal-300 border border-teal-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Operative cost {chipParamX} less resource
+                </button>
               </div>
             </div>
           </div>
@@ -780,7 +801,8 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 { id: 'defense', label: '🛡️ Intercept DEF' },
                 { id: 'deploy', label: '🚀 Deploy Free' },
                 { id: 'exhaust', label: '💤 Exhaust Card' },
-                { id: 'gain_resource', label: '💎 Gain Resource' }
+                { id: 'gain_resource', label: '💎 Gain Resource' },
+                { id: 'cost_discount', label: '🏷️ Cost Discount' }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -1086,6 +1108,50 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                   ) : (
                     <span>💎 <strong>Keyword Effect:</strong> Player discards 1 card from hand and gains <strong>Spendable resources equal to the discarded card's printed cost</strong>.</span>
                   )}
+                </div>
+              </div>
+            )}
+
+            {builderEffectCategory === 'cost_discount' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-teal-300 font-bold flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Passive Deploy Cost Reduction</span>
+                  </label>
+                  <span className="text-[10px] text-zinc-400">Always active • Does not require tapping</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 mb-1">Target Card Type</label>
+                    <select
+                      value={discountCardType}
+                      onChange={e => setDiscountCardType(e.target.value as any)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-white"
+                    >
+                      <option value="Operative">Operative (Default)</option>
+                      <option value="Location">Location</option>
+                      <option value="Support">Support</option>
+                      <option value="any">Any Card</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 mb-1">Resource Discount</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={discountAmount}
+                      onChange={e => setDiscountAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-teal-300 font-bold text-center"
+                    />
+                  </div>
+                </div>
+                <div className="p-2 rounded bg-zinc-950 border border-teal-800/50 text-[11px] text-teal-200/90 font-mono">
+                  🏷️ <strong>Effect Preview:</strong> <span className="text-white font-bold">Passive: {discountCardType} cost {discountAmount} less resource to deploy.</span>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">
+                    Player receives a continuous -{discountAmount} resource discount whenever deploying a {discountCardType} card (min cost 0).
+                  </div>
                 </div>
               </div>
             )}

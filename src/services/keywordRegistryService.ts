@@ -340,6 +340,17 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Deploy: +2 OFF to target operative. Discard at end of turn.'
+  },
+  {
+    id: 'kw_cost_discount_op',
+    keyword: 'Operative cost x less resource to deploy',
+    category: 'effect',
+    syntaxTemplate: 'Operative cost {x} less resource to deploy.',
+    description: 'Passive discount: Player gets a discount of x resource(s) every time they deploy an Operative card (minimum 0). Does not require tapping.',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Passive: Operative cost 1 less resource to deploy.'
   }
 ];
 

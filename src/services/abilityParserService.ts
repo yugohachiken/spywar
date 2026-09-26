@@ -35,6 +35,7 @@ export type AtomicEffectType =
   | 'produce_coins'
   | 'gain_resource'
   | 'gain_resource_discard_cost'
+  | 'cost_discount'
   | 'choice'
   | 'deploy_card'
   | 'exhaust_card';
@@ -52,6 +53,9 @@ export interface AtomicEffect {
   // For Deploy x card_type and Deploy any x keywords
   deployCardType?: 'Operative' | 'Location' | 'Support' | 'any';
   deployCount?: number;
+  // For Cost Discount (e.g. "Passive: Operative cost 1 less resource to deploy")
+  discountCardType?: 'Operative' | 'Location' | 'Support' | 'any';
+  discountAmount?: number;
   // For Exhaust keyword
   exhaustTargetType?: 'card' | 'operative' | 'location';
   exhaustCount?: number;
@@ -593,7 +597,76 @@ export class AbilityParserService {
       targetType = 'opponent';
     }
 
-    // M. Scan registered custom keywords
+    // M. Cost Discount / Deploy Resource Reduction ("Passive: Operative cost 1 less resource to deploy")
+    const discountOpMatch = lower.match(/(?:operative[s]?|op[s]?)\s*(?:card[s]?)?\s*costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*(?:to\s*deploy)?/i)
+      || lower.match(/costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*(?:to\s*deploy)?\s*(?:for\s*)?(?:an?\s*)?operative[s]?/i)
+      || lower.match(/(?:deploy|play)\s*(?:an?\s*)?operative[s]?\s*(?:costs?|for)\s*([0-9]+)\s*(?:less|fewer)/i)
+      || lower.match(/operative\s*cost\s*([0-9]+)\s*less/i);
+
+    const discountLocMatch = lower.match(/(?:location[s]?|loc[s]?)\s*(?:card[s]?)?\s*costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*(?:to\s*deploy)?/i);
+    const discountSupMatch = lower.match(/(?:support[s]?)\s*(?:card[s]?)?\s*costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*(?:to\s*(?:deploy|cast))?/i);
+    const discountAnyMatch = lower.match(/(?:all|any)\s*card[s]?\s*costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*(?:to\s*deploy)?/i)
+      || lower.match(/cards?\s*costs?\s*([0-9]+)\s*(?:less|fewer)\s*(?:resources?|coins?)?\s*to\s*deploy/i);
+
+    if (discountOpMatch || presetConfig?.costDiscount || lower.includes('operative cost 1 less')) {
+      const amt = discountOpMatch ? parseInt(discountOpMatch[1], 10) : (presetConfig?.costDiscount || 1);
+      recognizedKeywords.push(`Operative cost ${amt} less resource to deploy`);
+      isPassive = true;
+      requiresTap = false;
+      trigger = 'passive';
+      effects.push({
+        type: 'cost_discount',
+        discountCardType: 'Operative',
+        discountAmount: amt,
+        amount: amt,
+        rawPhrase: `Operative cost ${amt} less resource to deploy.`
+      });
+      if (targetType === 'none') targetType = 'self';
+    } else if (discountLocMatch) {
+      const amt = parseInt(discountLocMatch[1], 10);
+      recognizedKeywords.push(`Location cost ${amt} less resource to deploy`);
+      isPassive = true;
+      requiresTap = false;
+      trigger = 'passive';
+      effects.push({
+        type: 'cost_discount',
+        discountCardType: 'Location',
+        discountAmount: amt,
+        amount: amt,
+        rawPhrase: `Location cost ${amt} less resource to deploy.`
+      });
+      if (targetType === 'none') targetType = 'self';
+    } else if (discountSupMatch) {
+      const amt = parseInt(discountSupMatch[1], 10);
+      recognizedKeywords.push(`Support cost ${amt} less resource to cast`);
+      isPassive = true;
+      requiresTap = false;
+      trigger = 'passive';
+      effects.push({
+        type: 'cost_discount',
+        discountCardType: 'Support',
+        discountAmount: amt,
+        amount: amt,
+        rawPhrase: `Support cost ${amt} less resource to cast.`
+      });
+      if (targetType === 'none') targetType = 'self';
+    } else if (discountAnyMatch) {
+      const amt = parseInt(discountAnyMatch[1], 10);
+      recognizedKeywords.push(`Cards cost ${amt} less resource to deploy`);
+      isPassive = true;
+      requiresTap = false;
+      trigger = 'passive';
+      effects.push({
+        type: 'cost_discount',
+        discountCardType: 'any',
+        discountAmount: amt,
+        amount: amt,
+        rawPhrase: `Cards cost ${amt} less resource to deploy.`
+      });
+      if (targetType === 'none') targetType = 'self';
+    }
+
+    // N. Scan registered custom keywords
     try {
       const allKws = KeywordRegistryService.getInstance().getAllKeywords();
       for (const kw of allKws) {
@@ -738,6 +811,10 @@ export class AbilityParserService {
         effectPhrases.push(`gain ${eff.amount || 1} resource${(eff.amount || 1) > 1 ? 's' : ''}`);
       } else if (eff.type === 'gain_resource_discard_cost') {
         effectPhrases.push('Discards 1 card from hand, gain x resource equal to discarded card');
+      } else if (eff.type === 'cost_discount') {
+        const cType = eff.discountCardType || 'Operative';
+        const amt = eff.discountAmount || eff.amount || 1;
+        effectPhrases.push(`${cType} cost ${amt} less resource${amt > 1 ? 's' : ''} to deploy`);
       } else if (eff.type === 'deploy_card') {
         const cnt = eff.deployCount || eff.amount || 1;
         if (eff.deployCardType === 'any' || !eff.deployCardType) {
@@ -844,6 +921,11 @@ export class AbilityParserService {
       if (e.type === 'produce_coins') return `Produce +${e.amount || 1} Coins`;
       if (e.type === 'gain_resource') return `Gain ${e.amount || 1} Resource(s)`;
       if (e.type === 'gain_resource_discard_cost') return `Gain Resources Equal to Discarded Card Cost`;
+      if (e.type === 'cost_discount') {
+        const cType = e.discountCardType || 'Operative';
+        const amt = e.discountAmount || e.amount || 1;
+        return `${cType} Cost -${amt} Resource`;
+      }
       if (e.type === 'deploy_card') {
         const cnt = e.deployCount || e.amount || 1;
         const target = e.deployCardType === 'any' || !e.deployCardType ? 'Any' : e.deployCardType;

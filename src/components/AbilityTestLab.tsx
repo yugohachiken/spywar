@@ -1584,6 +1584,75 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 </button>
               </div>
             </div>
+
+            {/* Test Case 9: Passive Operative Cost Discount */}
+            <div className="p-3 rounded-xl bg-zinc-950/70 border border-teal-500/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-teal-300 text-xs flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Case 9: Passive: Operative cost 1 less resource to deploy</span>
+                </span>
+                <span className="text-[10px] text-teal-400 font-mono">Continuous Passive</span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Card in play grants a permanent -1 resource discount when deploying friendly Operatives without needing to tap. (e.g. 3-cost Operative deploys for 2 coins).
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    // 1. Spawn Headquarters with passive discount to P1 battlefield
+                    const discountCard: Card = {
+                      id: `discount_card_${Date.now()}`,
+                      name: 'Advanced Ops Center',
+                      type: 'Location',
+                      cost: 2,
+                      exhausted: false,
+                      stored_coins: 0,
+                      abilityText: 'Passive: Operative cost 1 less resource to deploy.'
+                    };
+                    p1.battlefield.push(discountCard);
+
+                    // 2. Put an Operative with base cost 3 into P1's hand
+                    const heavyOp: Card = {
+                      id: `heavy_op_${Date.now()}`,
+                      name: 'Cybernetic Specialist',
+                      type: 'Operative',
+                      cost: 3,
+                      off: 3,
+                      def: 3,
+                      exhausted: false
+                    };
+                    p1.hand.push(heavyOp);
+
+                    // 3. Set P1 coins to 2 (normally cannot afford cost 3)
+                    p1.current_turn_coins = 2;
+
+                    // 4. Calculate effective deploy cost
+                    const effCost = engine.getCardDeployCost(p1, heavyOp);
+                    const discount = engine.getCardDeployDiscount(p1, heavyOp);
+
+                    addTestLog(`🏷️ [Passive Discount Setup]: ${discountCard.name} in play with: "${discountCard.abilityText}"`);
+                    addTestLog(`Hand Card: ${heavyOp.name} (Base Cost: ${heavyOp.cost}). Effective Cost: ${effCost} (Discount: -${discount}). P1 Coins: ${p1.current_turn_coins}`);
+
+                    // 5. Deploy the card using PLAY_CARD
+                    const playResult = engine.executeAction(p1, p2, {
+                      type: 'PLAY_CARD',
+                      cardId: heavyOp.id,
+                      cardName: heavyOp.name,
+                      card: heavyOp
+                    });
+
+                    const deployedOnField = p1.battlefield.some(c => c.id === heavyOp.id);
+                    addTestLog(`🚀 [Deploy Result]: ${playResult.message}`);
+                    addTestLog(`P1 Coins Remaining: ${p1.current_turn_coins} (Expected: 0). Deployed: ${deployedOnField ? 'SUCCESS (On Field)' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Passive: Operative cost 1 less resource to deploy"</span>
+                  <span className="text-[10px] font-mono opacity-80">Passive Discount</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

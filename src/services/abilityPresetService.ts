@@ -11,6 +11,7 @@ export interface AbilityConfig {
   drawCount?: number;
   canPlayOnDefense?: boolean;
   costDiscount?: number;
+  discountCardType?: string;
   customNotes?: string;
 }
 
@@ -199,6 +200,18 @@ export const BUILT_IN_ABILITY_PRESETS: AbilityPreset[] = [
     isBuiltIn: true,
     config: {
       costDiscount: 1
+    }
+  },
+  {
+    id: 'op_deploy_discount_1',
+    name: 'Operative Cost 1 Less Resource to Deploy',
+    category: 'Operative',
+    trigger: 'passive',
+    description: 'Passive: Operative cost 1 less resource to deploy.',
+    isBuiltIn: true,
+    config: {
+      costDiscount: 1,
+      discountCardType: 'Operative'
     }
   }
 ];

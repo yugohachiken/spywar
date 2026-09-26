@@ -1086,14 +1086,16 @@ export const CardEditor: React.FC<CardEditorProps> = ({ onDeckOrCardUpdated, onN
                       <option value="buff_skill">MI6: Tap to grant an operative +1 Raid, Assassin, or Subterfuge</option>
                       <option value="draw">Impossible Mission Force: Tap to Draw 1 card</option>
                       <option value="spawn_token">Shadow Home: Tap to Spawn 1/1 Shadow Warrior token</option>
-                      <option value="play_operative">MK Entertainment: Passive (Operatives cost 1 fewer coin)</option>
+                      <option value="play_operative">MK Entertainment: Passive (Operative cost 1 less resource to deploy)</option>
                     </optgroup>
                     <optgroup label="Location Abilities">
                       <option value="armory_buff">Armory: Tap to give operative +1 Offense or +1 Defense</option>
                       <option value="force_discard">Troll Farm: Tap to force opponent to discard 1 card</option>
                       <option value="draw_card">Research Facility: Tap to Draw 1 card</option>
+                      <option value="play_operative">Headquarters Discount: Passive (Operative cost 1 less resource to deploy)</option>
                     </optgroup>
                     <optgroup label="Operative Abilities">
+                      <option value="play_operative">Commander Discount: Passive (Operative cost 1 less resource to deploy)</option>
                       <option value="boksoon_discard_ass1">Boksoon Execution: Discard enemy operative with Assassin skill &gt;= 1</option>
                       <option value="mata_hari_steal_card">Mata Hari Charm: Steal random card from enemy hand</option>
                       <option value="ghost_siphon_2">Ghost Cyber-Siphon: Siphon 2 resources upon deploy and activation</option>

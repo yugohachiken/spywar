@@ -268,6 +268,59 @@ export class SpywarEngine {
     return player.current_turn_coins + this.getStoredCoins(player);
   }
 
+  /**
+   * Calculates the final spendable resource cost to deploy/play a card,
+   * accounting for passive discounts from affiliation and cards in play.
+   */
+  getCardDeployCost(player: Player, card: Card): number {
+    let cost = card.cost || 0;
+    const discount = this.getCardDeployDiscount(player, card);
+    return Math.max(0, cost - discount);
+  }
+
+  /**
+   * Calculates total resource discount applied to a card deployment
+   * (e.g. "Passive: Operative cost 1 less resource to deploy")
+   */
+  getCardDeployDiscount(player: Player, card: Card): number {
+    let discount = 0;
+    const parser = AbilityParserService.getInstance();
+
+    // 1. Check Player Affiliation
+    if (player.affiliation) {
+      if (player.affiliation.specialAbility === 'play_operative' && card.type === 'Operative') {
+        discount += 1;
+      } else if (player.affiliation.abilityText || player.affiliation.specialAbility) {
+        const parsed = parser.parseAbility(player.affiliation.abilityText || player.affiliation.specialAbility);
+        for (const eff of parsed.effects) {
+          if (eff.type === 'cost_discount') {
+            if (eff.discountCardType === 'any' || eff.discountCardType === card.type) {
+              discount += (eff.discountAmount || eff.amount || 1);
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Check Cards on Battlefield (Locations, Operatives, etc. with persistent passive discount)
+    for (const bfCard of player.battlefield) {
+      if (bfCard.specialAbility === 'play_operative' && card.type === 'Operative') {
+        discount += 1;
+      } else if (bfCard.abilityText || bfCard.specialAbility) {
+        const parsed = parser.parseAbility(bfCard.abilityText || bfCard.specialAbility);
+        for (const eff of parsed.effects) {
+          if (eff.type === 'cost_discount') {
+            if (eff.discountCardType === 'any' || eff.discountCardType === card.type) {
+              discount += (eff.discountAmount || eff.amount || 1);
+            }
+          }
+        }
+      }
+    }
+
+    return discount;
+  }
+
   spendCoins(player: Player, amount: number): boolean {
     if (amount > this.getTotalSpendableCoins(player)) return false;
 
@@ -838,10 +891,11 @@ export class SpywarEngine {
       const isInHand = player.hand.some(c => c.id === selectedCard.id);
       if (isInHand) {
         // Deploy action
-        let cost = selectedCard.cost;
-        if (player.affiliation?.specialAbility === 'play_operative' && selectedCard.type === 'Operative') {
-          cost = Math.max(0, cost - 1);
-        }
+        const cost = this.getCardDeployCost(player, selectedCard);
+        const discount = this.getCardDeployDiscount(player, selectedCard);
+        const deployCostDesc = discount > 0 
+          ? `Cost: ${selectedCard.cost} -> ${cost} [Discount: -${discount}]`
+          : `Cost: ${cost}`;
 
         if (cost <= spendable) {
           if (selectedCard.name === 'Global Dominion Plan') {
@@ -851,7 +905,7 @@ export class SpywarEngine {
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                desc: `Deploy Global Dominion Plan (Cost: 8) -> WIN GAME!`
+                desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
               });
             }
           } else if (selectedCard.specialAbility === 'assemble_strike_defense') {
@@ -861,7 +915,7 @@ export class SpywarEngine {
               cardName: selectedCard.name,
               card: selectedCard,
               subChoice: 'assemble_strike',
-              desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token)`
+              desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
             });
             actions.push({
               type: 'PLAY_CARD',
@@ -869,7 +923,7 @@ export class SpywarEngine {
               cardName: selectedCard.name,
               card: selectedCard,
               subChoice: 'assemble_defense',
-              desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token)`
+              desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
             });
           } else if (selectedCard.type === 'Support') {
             if (this.isSupportPlayable(selectedCard.name, player, opponent)) {
@@ -878,7 +932,7 @@ export class SpywarEngine {
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                desc: `Cast ${selectedCard.name} (Cost: ${cost})`
+                desc: `Cast ${selectedCard.name} (${deployCostDesc})`
               });
             }
           } else {
@@ -887,7 +941,7 @@ export class SpywarEngine {
               cardId: selectedCard.id,
               cardName: selectedCard.name,
               card: selectedCard,
-              desc: `Deploy ${selectedCard.name} (Cost: ${cost})`
+              desc: `Deploy ${selectedCard.name} (${deployCostDesc})`
             });
           }
         } else {
@@ -898,7 +952,7 @@ export class SpywarEngine {
             card: selectedCard,
             disabled: true,
             disabledReason: `Requires ${cost} coins (Spendable: ${spendable})`,
-            desc: `Deploy ${selectedCard.name} (Cost: ${cost}) [Need ${cost - spendable} more coin(s)]`
+            desc: `Deploy ${selectedCard.name} (${deployCostDesc}) [Need ${cost - spendable} more coin(s)]`
           });
         }
 
@@ -1678,10 +1732,11 @@ export class SpywarEngine {
 
     // 3. Play Cards from Hand
     for (const card of player.hand) {
-      let cost = card.cost;
-      if (player.affiliation?.specialAbility === 'play_operative' && card.type === 'Operative') {
-        cost = Math.max(0, cost - 1);
-      }
+      const cost = this.getCardDeployCost(player, card);
+      const discount = this.getCardDeployDiscount(player, card);
+      const deployCostDesc = discount > 0 
+        ? `Cost: ${card.cost} -> ${cost} [Discount: -${discount}]`
+        : `Cost: ${cost}`;
 
       if (cost <= spendable) {
         if (card.name === 'Global Dominion Plan') {
@@ -1691,7 +1746,7 @@ export class SpywarEngine {
               cardId: card.id,
               cardName: card.name,
               card,
-              desc: `Deploy Global Dominion Plan (Cost: 8) -> WIN GAME!`
+              desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
             });
           }
         } else if (card.type === 'Support') {
@@ -1701,7 +1756,7 @@ export class SpywarEngine {
               cardId: card.id,
               cardName: card.name,
               card,
-              desc: `Cast ${card.name} (Cost: ${cost})`
+              desc: `Cast ${card.name} (${deployCostDesc})`
             });
           }
         } else {
@@ -1710,7 +1765,7 @@ export class SpywarEngine {
             cardId: card.id,
             cardName: card.name,
             card,
-            desc: `Deploy ${card.name} (Cost: ${cost})`
+            desc: `Deploy ${card.name} (${deployCostDesc})`
           });
         }
       }
@@ -3020,10 +3075,8 @@ export class SpywarEngine {
 
     if (action.type === 'PLAY_CARD') {
       const card = action.card!;
-      let cost = card.cost;
-      if (player.affiliation?.specialAbility === 'play_operative' && card.type === 'Operative') {
-        cost = Math.max(0, cost - 1);
-      }
+      const cost = this.getCardDeployCost(player, card);
+      const discount = this.getCardDeployDiscount(player, card);
 
       if (!this.spendCoins(player, cost)) {
         return { success: false, message: 'Not enough coins to play card.' };
@@ -3051,7 +3104,7 @@ export class SpywarEngine {
         const locExh = this.config.locationSummonState === 'E';
         const inst: Card = { ...card, stored_coins: 0, exhausted: locExh };
         player.battlefield.push(inst);
-        this.log(player.pid, 'PLAY-LOC', `Deployed Location: ${card.name} (Cost: ${cost}) ${locExh ? '(E)' : '(R)'}.`);
+        this.log(player.pid, 'PLAY-LOC', `Deployed Location: ${card.name} (Cost: ${cost}${discount > 0 ? ` [Base: ${card.cost}, Discount: -${discount}]` : ''}) ${locExh ? '(E)' : '(R)'}.`);
         return { success: true, message: `Deployed ${card.name}.` };
       }
 
@@ -3059,7 +3112,7 @@ export class SpywarEngine {
         const opExh = this.config.operativeSummonState === 'E';
         const inst: Card = { ...card, exhausted: opExh };
         player.battlefield.push(inst);
-        this.log(player.pid, 'PLAY-OP', `Deployed Operative: ${card.name} (Cost: ${cost}) [Off:${card.off}/Def:${card.def}] ${opExh ? '(E)' : '(R)'}.`);
+        this.log(player.pid, 'PLAY-OP', `Deployed Operative: ${card.name} (Cost: ${cost}${discount > 0 ? ` [Base: ${card.cost}, Discount: -${discount}]` : ''}) [Off:${card.off}/Def:${card.def}] ${opExh ? '(E)' : '(R)'}.`);
 
         // Ghost / ghost_siphon_2: Siphons 2 resources upon deployment
         if (card.name === 'Ghost' || card.specialAbility === 'ghost_siphon_2') {

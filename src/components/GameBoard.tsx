@@ -1380,9 +1380,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const mustDiscardExcess = bottomPlayer.hand.length > engine.config.maxHandSize;
               const hasPendingFree = bottomPlayer.pendingFreeDeploys && bottomPlayer.pendingFreeDeploys.count > 0;
               const isCardTypeMatch = hasPendingFree && (bottomPlayer.pendingFreeDeploys!.cardType === 'any' || card.type === bottomPlayer.pendingFreeDeploys!.cardType);
-              const effCost = bottomPlayer.affiliation?.specialAbility === 'play_operative' && card.type === 'Operative'
-                ? Math.max(0, card.cost - 1)
-                : card.cost;
+              const effCost = engine.getCardDeployCost(bottomPlayer, card);
               const isAffordable = effCost <= engine.getTotalSpendableCoins(bottomPlayer);
 
               const isPlayable = !mustDiscardExcess && (!isOnline || isMyTurn) && (
@@ -1394,7 +1392,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                   key={card.id}
                   card={card}
                   isPlayable={isPlayable}
-                  playLabel={isCardTypeMatch ? 'Deploy (FREE)' : `Deploy (${card.cost})`}
+                  playLabel={isCardTypeMatch ? 'Deploy (FREE)' : effCost < card.cost ? `Deploy (${card.cost} -> ${effCost})` : `Deploy (${card.cost})`}
                   onPlay={() => {
                     if (isCardTypeMatch) {
                       const freeAct = legalActions.find(a => a.type === 'DEPLOY_FREE_CARD' && a.cardId === card.id) || {

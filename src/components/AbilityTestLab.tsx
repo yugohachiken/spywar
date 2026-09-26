@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SpywarEngine } from '../engine/SpywarEngine';
 import { CardView } from './CardView';
 import { Card } from '../types/spywar';
-import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle, Coins } from 'lucide-react';
+import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle, Coins, Sparkles, Target } from 'lucide-react';
 
 interface AbilityTestLabProps {
   engine: SpywarEngine;
@@ -1519,6 +1519,13 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
               <div className="flex flex-col gap-1.5 pt-1">
                 <button
                   onClick={() => {
+                    // Clean up prior test artifacts
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('res_gen_') && !c.id.startsWith('converter_'));
+                    p1.hand = p1.hand.filter(c => !c.id.startsWith('card_discard_'));
+                    if (p1.hand.length >= engine.config.maxHandSize) {
+                      p1.hand = p1.hand.slice(0, 2);
+                    }
+
                     const startCoins = p1.current_turn_coins;
                     const resGenCard: Card = {
                       id: `res_gen_${Date.now()}`,
@@ -1600,7 +1607,14 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
               <div className="flex gap-2">
                 <button
                   onClick={() => {
-                    // 1. Spawn Headquarters with passive discount to P1 battlefield
+                    // 0. Clean up prior test instances so clicking repeatedly doesn't stack locations or flood hand
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('discount_card_') && !c.id.startsWith('heavy_op_'));
+                    p1.hand = p1.hand.filter(c => !c.id.startsWith('heavy_op_') && !c.id.startsWith('card_discard_'));
+                    if (p1.hand.length >= engine.config.maxHandSize) {
+                      p1.hand = p1.hand.slice(0, 2);
+                    }
+
+                    // 1. Spawn Headquarters with passive discount to P1 battlefield (exactly 1 copy)
                     const discountCard: Card = {
                       id: `discount_card_${Date.now()}`,
                       name: 'Advanced Ops Center',
@@ -1631,8 +1645,8 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                     const effCost = engine.getCardDeployCost(p1, heavyOp);
                     const discount = engine.getCardDeployDiscount(p1, heavyOp);
 
-                    addTestLog(`🏷️ [Passive Discount Setup]: ${discountCard.name} in play with: "${discountCard.abilityText}"`);
-                    addTestLog(`Hand Card: ${heavyOp.name} (Base Cost: ${heavyOp.cost}). Effective Cost: ${effCost} (Discount: -${discount}). P1 Coins: ${p1.current_turn_coins}`);
+                    addTestLog(`🏷️ [Passive Discount Setup]: 1x ${discountCard.name} in play with: "${discountCard.abilityText}"`);
+                    addTestLog(`Hand Card: ${heavyOp.name} (Base Cost: ${heavyOp.cost}). Effective Cost: ${effCost} (Discount: -${discount}). P1 Coins: ${p1.current_turn_coins}. Hand: ${p1.hand.length}/${engine.config.maxHandSize}`);
 
                     // 5. Deploy the card using PLAY_CARD
                     const playResult = engine.executeAction(p1, p2, {
@@ -1650,6 +1664,173 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 >
                   <span>Test "Passive: Operative cost 1 less resource to deploy"</span>
                   <span className="text-[10px] font-mono opacity-80">Passive Discount</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Case 10: Targeted Operative Buff Selection (Assassination Training & M.I.C.A. +1/+1 Tech Token) */}
+            <div className="p-3 rounded-xl bg-zinc-900/90 border border-emerald-500/50 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
+                <span className="flex items-center gap-1.5 text-emerald-400">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span>Case 10: Targeted Operative Buff Selection (Training &amp; M.I.C.A.)</span>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">Target Selection</span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                When playing a card or ability that buffs an Operative (Assassination Training, Subterfuge Training, Raid Training, or M.I.C.A. +1/+1 Tech token), the player selects which Operative in play receives the benefit. Duplicate Tech tokens cannot stack.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    // Clean up test cards
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('test_target_op_'));
+                    p1.hand = p1.hand.filter(c => !c.id.startsWith('test_train_card_'));
+
+                    // 1. Spawn two distinct operatives in play
+                    const opAlpha: Card = {
+                      id: `test_target_op_alpha_${Date.now()}`,
+                      name: 'Operative Alpha (Infiltrator)',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      ass: 0,
+                      raid: 0,
+                      sub: 0,
+                      exhausted: false
+                    };
+                    const opBeta: Card = {
+                      id: `test_target_op_beta_${Date.now()}`,
+                      name: 'Operative Beta (Specialist)',
+                      type: 'Operative',
+                      cost: 3,
+                      off: 3,
+                      def: 3,
+                      ass: 0,
+                      raid: 0,
+                      sub: 0,
+                      exhausted: false
+                    };
+                    p1.battlefield.push(opAlpha, opBeta);
+
+                    // 2. Spawn Assassination Training in hand
+                    const assTraining: Card = {
+                      id: `test_train_card_${Date.now()}`,
+                      name: 'Assassination Training',
+                      type: 'Support',
+                      cost: 2,
+                      abilityText: 'Cast: Target friendly operative gains +2 Assassin skill.'
+                    };
+                    p1.hand.push(assTraining);
+                    p1.current_turn_coins = 5;
+
+                    addTestLog(`🎯 [Setup]: Battlefield has 2 Operatives: "${opAlpha.name}" (ASS: 0) and "${opBeta.name}" (ASS: 0)`);
+
+                    // 3. Play Assassination Training explicitly selecting Operative Beta as beneficiary
+                    const playResult = engine.executeAction(p1, p2, {
+                      type: 'PLAY_CARD',
+                      cardId: assTraining.id,
+                      cardName: assTraining.name,
+                      card: assTraining,
+                      targetId: opBeta.id,
+                      targetName: opBeta.name,
+                      targetCard: opBeta
+                    });
+
+                    addTestLog(`🚀 [Train Result]: ${playResult.message}`);
+                    addTestLog(`🔍 [Target Verification]: ${opBeta.name} ASS=${opBeta.ass || 0} (Expected: 2) | ${opAlpha.name} ASS=${opAlpha.ass || 0} (Expected: 0)`);
+                    const isSuccess = (opBeta.ass === 2) && (!opAlpha.ass || opAlpha.ass === 0);
+                    addTestLog(`✅ [Assassination Training Targeted Buff]: ${isSuccess ? 'PASSED - Only selected Operative received +2 ASS' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Assassination Training &rarr; Target Operative Beta"</span>
+                  <span className="text-[10px] font-mono opacity-80">+2 ASS</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    // Clean up test cards
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('test_target_op_'));
+
+                    // 1. Spawn two distinct operatives in play
+                    const opAlpha: Card = {
+                      id: `test_target_op_alpha_${Date.now()}`,
+                      name: 'Operative Alpha (Infiltrator)',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      exhausted: false
+                    };
+                    const opBeta: Card = {
+                      id: `test_target_op_beta_${Date.now()}`,
+                      name: 'Operative Beta (Specialist)',
+                      type: 'Operative',
+                      cost: 3,
+                      off: 3,
+                      def: 3,
+                      exhausted: false
+                    };
+                    p1.battlefield.push(opAlpha, opBeta);
+
+                    // 2. Set P1 Affiliation to M.I.C.A.
+                    const micaAffiliation: Card = {
+                      id: `aff_mica_test_${Date.now()}`,
+                      name: 'M.I.C.A.',
+                      type: 'Affiliation',
+                      cost: 0,
+                      production: 2,
+                      cap: 5,
+                      specialAbility: 'buff_tech_token',
+                      abilityText: 'Tap: Give target friendly operative +1/+1 Tech token.',
+                      exhausted: false
+                    };
+                    p1.affiliation = micaAffiliation;
+
+                    addTestLog(`🏷️ [M.I.C.A. Setup]: Affiliation set to M.I.C.A. Friendly Operatives: "${opAlpha.name}" (2/2) & "${opBeta.name}" (3/3)`);
+
+                    // 3. Tap M.I.C.A. selecting Operative Alpha to receive +1/+1 Tech token
+                    const tapResult = engine.executeAction(p1, p2, {
+                      type: 'TAP_ABILITY',
+                      cardId: micaAffiliation.id,
+                      cardName: micaAffiliation.name,
+                      card: micaAffiliation,
+                      targetId: opAlpha.id,
+                      targetName: opAlpha.name,
+                      targetCard: opAlpha,
+                      subChoice: 'buff_tech_token'
+                    });
+
+                    const effOffAlpha = (opAlpha.off || 0) + engine.getCardStatTokensBuff(opAlpha);
+                    const effDefAlpha = (opAlpha.def || 0) + engine.getCardStatTokensBuff(opAlpha);
+                    const effOffBeta = (opBeta.off || 0) + engine.getCardStatTokensBuff(opBeta);
+
+                    addTestLog(`🚀 [M.I.C.A. Tap Result]: ${tapResult.message}`);
+                    addTestLog(`🔍 [Token Verification]: ${opAlpha.name} Tech Tokens=${opAlpha.techTokens || 0} (OFF: ${effOffAlpha}, DEF: ${effDefAlpha}) | ${opBeta.name} Tech Tokens=${opBeta.techTokens || 0} (OFF: ${effOffBeta})`);
+
+                    // 4. Test duplicate prevention: Attempting to give Operative Alpha another Tech token
+                    micaAffiliation.exhausted = false; // Ready for duplicate test
+                    const duplicateResult = engine.executeAction(p1, p2, {
+                      type: 'TAP_ABILITY',
+                      cardId: micaAffiliation.id,
+                      cardName: micaAffiliation.name,
+                      card: micaAffiliation,
+                      targetId: opAlpha.id,
+                      targetName: opAlpha.name,
+                      targetCard: opAlpha,
+                      subChoice: 'buff_tech_token'
+                    });
+
+                    addTestLog(`🛡️ [Duplicate Stack Prevention Result]: Success=${duplicateResult.success} -> "${duplicateResult.message}"`);
+                    const isSuccess = (opAlpha.techTokens === 1) && (!opBeta.techTokens || opBeta.techTokens === 0) && (!duplicateResult.success);
+                    addTestLog(`✅ [M.I.C.A. Targeted Tech Token & No Stacking]: ${isSuccess ? 'PASSED' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "M.I.C.A. Tap &rarr; Target Operative Alpha (+1/+1 Tech)"</span>
+                  <span className="text-[10px] font-mono opacity-80">+1/+1 Tech</span>
                 </button>
               </div>
             </div>

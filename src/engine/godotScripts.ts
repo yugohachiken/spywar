@@ -720,26 +720,50 @@ func _trigger_ghost_siphon(player: PlayerState, opponent: PlayerState, card: Car
 		_log(player, "GHOST-SIPHON", "Ghost cyber-siphon captured %d resources from %s." % [stolen, opponent.display_name])
 		mission_manager.add_mission_tokens(player, "res_theft", stolen)
 
-func _resolve_support_spell(player: PlayerState, opponent: PlayerState, card: CardData) -> void:
+func _resolve_support_spell(player: PlayerState, opponent: PlayerState, card: CardData, target_id: String = "") -> void:
 	match card.card_name:
 		"Funding":
 			player.current_turn_coins += 3
 			_log(player, "FUNDING", "+3 coins added to floating turn pool.")
 		"Assassination Training":
+			var target_op: CardData = null
 			for c in player.battlefield:
-				if c.card_type == CardData.CardType.OPERATIVE:
-					c.skill_assassin += 2
-					_log(player, "TRAIN", "Trained %s with +2 Assassin skill." % c.card_name)
+				if c.card_type == CardData.CardType.OPERATIVE and (target_id == "" or c.card_id == target_id):
+					target_op = c
 					break
+			if target_op:
+				target_op.skill_assassin += 2
+				_log(player, "TRAIN", "Trained %s with +2 Assassin skill." % target_op.card_name)
+		"Raid Training":
+			var target_op: CardData = null
+			for c in player.battlefield:
+				if c.card_type == CardData.CardType.OPERATIVE and (target_id == "" or c.card_id == target_id):
+					target_op = c
+					break
+			if target_op:
+				target_op.skill_raid += 2
+				_log(player, "TRAIN", "Trained %s with +2 Raid skill." % target_op.card_name)
+		"Subterfuge Training":
+			var target_op: CardData = null
+			for c in player.battlefield:
+				if c.card_type == CardData.CardType.OPERATIVE and (target_id == "" or c.card_id == target_id):
+					target_op = c
+					break
+			if target_op:
+				target_op.skill_subterfuge += 2
+				_log(player, "TRAIN", "Trained %s with +2 Subterfuge skill." % target_op.card_name)
 		"Targeted for Whitewash":
+			var target_op: CardData = null
 			for c in opponent.battlefield:
-				if c.card_type == CardData.CardType.OPERATIVE:
-					opponent.battlefield.erase(c)
-					opponent.discard_pile.append(c)
-					player.eliminated_enemy_op_this_turn = true
-					_log(player, "WHITEWASH", "Eliminated enemy operative %s." % c.card_name)
-					mission_manager.add_mission_tokens(player, "kills", 1)
+				if c.card_type == CardData.CardType.OPERATIVE and (target_id == "" or c.card_id == target_id):
+					target_op = c
 					break
+			if target_op:
+				opponent.battlefield.erase(target_op)
+				opponent.discard_pile.append(target_op)
+				player.eliminated_enemy_op_this_turn = true
+				_log(player, "WHITEWASH", "Eliminated enemy operative %s." % target_op.card_name)
+				mission_manager.add_mission_tokens(player, "kills", 1)
 
 func _declare_winner(player: PlayerState, reason: String) -> void:
 	is_game_over = true

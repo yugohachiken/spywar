@@ -3,7 +3,7 @@ import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap, Target, Sword } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { CombatPlanner, CombatOperationType } from './CombatPlanner';
 import { InlineDefensePanel } from './InlineDefensePanel';
@@ -24,6 +24,14 @@ interface PendingDefenseState {
   isSpecialAbilityAttack?: boolean;
 }
 
+interface PendingTargetSelectionState {
+  sourceCard: Card;
+  promptTitle: string;
+  promptDescription: string;
+  effectType?: 'skill_ass' | 'skill_raid' | 'skill_sub' | 'tech_token' | 'buff_off' | 'buff_def' | 'elimination' | 'conversion' | 'acquisition' | 'general';
+  actions: Action[];
+}
+
 interface GameBoardProps {
   engine: SpywarEngine;
   onRefresh: () => void;
@@ -33,6 +41,7 @@ interface GameBoardProps {
 
 export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavigateToDeckBuilder, onNavigateToCardEditor }) => {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const [pendingTargetSelection, setPendingTargetSelection] = useState<PendingTargetSelectionState | null>(null);
   const [selectedAttackers, setSelectedAttackers] = useState<Card[]>([]);
   const [selectedCombatOp, setSelectedCombatOp] = useState<CombatOperationType | null>(null);
   const [selectedCombatTarget, setSelectedCombatTarget] = useState<Card | null>(null);
@@ -484,6 +493,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const handleAction = (action: Action) => {
     if (pendingDefense) return;
+    setPendingTargetSelection(null);
 
     if (action.type === 'INTERRUPT_ACTION') {
       engine.executeAction(myPlayer, otherPlayer, action);
@@ -1158,17 +1168,41 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             />
           )}
           {topPlayer.battlefield.map(card => {
-            const isTarget = selectedCombatTarget?.id === card.id;
+            const isCombatTarget = selectedCombatTarget?.id === card.id;
             const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === topPlayer.pid;
+            const isEnemyTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
+            const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
+
+            let role: 'attacker' | 'defender' | 'target' | undefined = undefined;
+            let badge: string | undefined = undefined;
+            if (isEnemyTargetCandidate) {
+              role = 'target';
+              badge = candidateAct?.disabled ? 'Cannot Target' : '🎯 Target';
+            } else if (isCombatTarget) {
+              role = 'target';
+              badge = 'Target';
+            } else if (isDefender) {
+              role = 'defender';
+              badge = 'Defender';
+            }
+
             return (
               <CardView
                 key={card.id}
                 card={card}
                 compact
-                selected={isTarget || isDefender || selectedCard?.id === card.id}
-                selectionRole={isTarget ? 'target' : isDefender ? 'defender' : undefined}
-                selectionBadge={isTarget ? 'Target' : isDefender ? 'Defender' : undefined}
+                selected={isCombatTarget || isDefender || selectedCard?.id === card.id || isEnemyTargetCandidate}
+                selectionRole={role}
+                selectionBadge={badge}
                 onClick={() => {
+                  if (pendingTargetSelection) {
+                    const match = pendingTargetSelection.actions.find(a => a.targetId === card.id);
+                    if (match && !match.disabled) {
+                      handleAction(match);
+                      setPendingTargetSelection(null);
+                      return;
+                    }
+                  }
                   if (pendingDefense && pendingDefense.defender.pid === topPlayer.pid && (!isOnline || pendingDefense.defender.pid === myPid)) {
                     if (card.type === 'Operative' && !card.exhausted) {
                       const nextIds = pendingDefense.selectedDefenderIds.includes(card.id)
@@ -1182,7 +1216,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                     return;
                   }
                   if (selectedAttackers.length > 0) {
-                    setSelectedCombatTarget(isTarget ? null : card);
+                    setSelectedCombatTarget(isCombatTarget ? null : card);
                   } else {
                     setSelectedCard(selectedCard?.id === card.id ? null : card);
                   }
@@ -1242,8 +1276,48 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             {bottomPlayer.affiliation && (
               <CardView
                 card={bottomPlayer.affiliation}
-                selected={selectedCard?.id === bottomPlayer.affiliation.id}
-                onClick={() => setSelectedCard(selectedCard?.id === bottomPlayer.affiliation.id ? null : bottomPlayer.affiliation)}
+                selected={selectedCard?.id === bottomPlayer.affiliation.id || pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation.id}
+                isPlayable={!bottomPlayer.affiliation.exhausted && (!isOnline || isMyTurn)}
+                playLabel={bottomPlayer.affiliation.name === 'M.I.C.A.' ? 'Grant Tech Token' : 'Activate'}
+                onPlay={() => {
+                  const targetActs = legalActions.filter(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
+                  if (targetActs.length > 0) {
+                    setSelectedCard(bottomPlayer.affiliation);
+                    setPendingTargetSelection({
+                      sourceCard: bottomPlayer.affiliation,
+                      promptTitle: `${bottomPlayer.affiliation.name}: Bestow +1/+1 Tech Token`,
+                      promptDescription: `Select which Operative in play will receive the +1/+1 Tech token:`,
+                      effectType: 'tech_token',
+                      actions: targetActs
+                    });
+                    return;
+                  }
+                  const directAct = legalActions.find(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id);
+                  if (directAct) handleAction(directAct);
+                }}
+                onClick={() => {
+                  if (pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation?.id) {
+                    setPendingTargetSelection(null);
+                    setSelectedCard(null);
+                    return;
+                  }
+                  const isToggleOff = selectedCard?.id === bottomPlayer.affiliation.id;
+                  setSelectedCard(isToggleOff ? null : bottomPlayer.affiliation);
+                  if (!isToggleOff && !bottomPlayer.affiliation.exhausted) {
+                    const targetActs = legalActions.filter(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
+                    if (targetActs.length > 0) {
+                      setPendingTargetSelection({
+                        sourceCard: bottomPlayer.affiliation,
+                        promptTitle: `${bottomPlayer.affiliation.name}: Bestow +1/+1 Tech Token`,
+                        promptDescription: `Select which Operative in play will receive the +1/+1 Tech token:`,
+                        effectType: 'tech_token',
+                        actions: targetActs
+                      });
+                      return;
+                    }
+                  }
+                  setPendingTargetSelection(null);
+                }}
               />
             )}
             {bottomPlayer.battlefield.map(card => {
@@ -1251,9 +1325,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === bottomPlayer.pid;
               const isTarget = selectedCombatTarget?.id === card.id;
 
-              let role: 'attacker' | 'defender' | 'target' | undefined = undefined;
+              const isTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
+              const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
+
+              let role: 'attacker' | 'defender' | 'target' | 'buff_target' | undefined = undefined;
               let badge: string | undefined = undefined;
-              if (isAttacker) {
+              if (isTargetCandidate) {
+                role = 'buff_target';
+                badge = candidateAct?.disabled ? 'Cannot Receive' : '🎯 Beneficiary';
+              } else if (isAttacker) {
                 role = 'attacker';
                 badge = 'Attacker';
               } else if (isDefender) {
@@ -1268,10 +1348,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
-                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id}
+                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || isTargetCandidate}
                   selectionRole={role}
                   selectionBadge={badge}
                   onClick={(e) => {
+                    // If in targeting mode for an operative benefit, direct click selects this operative
+                    if (pendingTargetSelection) {
+                      const match = pendingTargetSelection.actions.find(a => a.targetId === card.id);
+                      if (match) {
+                        if (match.disabled) {
+                          return;
+                        }
+                        const allMatchesForThisCard = pendingTargetSelection.actions.filter(a => a.targetId === card.id);
+                        if (allMatchesForThisCard.length === 1) {
+                          handleAction(match);
+                          setPendingTargetSelection(null);
+                          return;
+                        }
+                        // Multiple choices (e.g. +1 OFF vs +1 DEF) - prompt stays open for user to click subchoice
+                        return;
+                      }
+                    }
+
                     // 1. If currently in defense intercept state and this card belongs to defending player
                     if (pendingDefense && pendingDefense.defender.pid === bottomPlayer.pid && (!isOnline || pendingDefense.defender.pid === myPid)) {
                       if (card.type === 'Operative' && !card.exhausted) {
@@ -1307,12 +1405,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                           if (!selectedCombatOp) setSelectedCombatOp('ass');
                         }
                         setSelectedCard(null);
+                        setPendingTargetSelection(null);
                         return;
                       }
                     }
 
                     // 3. Normal single card selection toggle
-                    setSelectedCard(selectedCard?.id === card.id ? null : card);
+                    const isToggleOff = selectedCard?.id === card.id;
+                    setSelectedCard(isToggleOff ? null : card);
+                    if (!isToggleOff && !card.exhausted) {
+                      const buffActs = legalActions.filter(a => a.cardId === card.id && a.targetId);
+                      if (buffActs.length > 0) {
+                        setPendingTargetSelection({
+                          sourceCard: card,
+                          promptTitle: `${card.name}: Select Target Operative`,
+                          promptDescription: `Select which Operative in play will receive the benefit:`,
+                          effectType: 'general',
+                          actions: buffActs
+                        });
+                        return;
+                      }
+                    }
+                    setPendingTargetSelection(null);
                   }}
                 />
               );
@@ -1405,6 +1519,50 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                       handleAction(freeAct);
                       return;
                     }
+                    const matchingActs = legalActions.filter(a => a.type === 'PLAY_CARD' && a.cardId === card.id);
+                    const targetActs = matchingActs.filter(a => a.targetId);
+                    if (targetActs.length > 0) {
+                      let title = `Select Operative for ${card.name}`;
+                      let desc = `Choose which Operative in play will receive the benefit:`;
+                      let effectType: any = 'general';
+                      if (card.name === 'Assassination Training') {
+                        title = `Train Operative: Assassin Skill (+2 ASS)`;
+                        desc = `Select which Operative in play will receive +2 Assassin skill:`;
+                        effectType = 'skill_ass';
+                      } else if (card.name === 'Raid Training') {
+                        title = `Train Operative: Raid Skill (+2 RAID)`;
+                        desc = `Select which Operative in play will receive +2 Raid skill:`;
+                        effectType = 'skill_raid';
+                      } else if (card.name === 'Subterfuge Training') {
+                        title = `Train Operative: Subterfuge Skill (+2 SUB)`;
+                        desc = `Select which Operative in play will receive +2 Subterfuge skill:`;
+                        effectType = 'skill_sub';
+                      } else if (card.specialAbility === 'assemble_strike_defense') {
+                        title = `Assemble Team: Target Operative`;
+                        desc = `Select which Operative in play will receive the +2 token:`;
+                      } else if (card.name === 'Targeted for Whitewash') {
+                        title = `Targeted for Whitewash: Eliminate Operative`;
+                        desc = `Select which enemy Operative in play to eliminate:`;
+                        effectType = 'elimination';
+                      } else if (card.name === 'Double Agent') {
+                        title = `Double Agent: Convert Operative`;
+                        desc = `Select which enemy Operative in play to convert:`;
+                        effectType = 'conversion';
+                      } else if (card.name === 'Acquisition') {
+                        title = `Acquisition: Acquire Location`;
+                        desc = `Select which enemy Location in play to acquire:`;
+                        effectType = 'acquisition';
+                      }
+                      setSelectedCard(card);
+                      setPendingTargetSelection({
+                        sourceCard: card,
+                        promptTitle: title,
+                        promptDescription: desc,
+                        effectType,
+                        actions: targetActs
+                      });
+                      return;
+                    }
                     const act = legalActions.find(a => a.type === 'PLAY_CARD' && a.cardId === card.id);
                     if (act) handleAction(act);
                   }}
@@ -1419,10 +1577,54 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                     };
                     handleAction(act);
                   }}
-                  selected={selectedCard?.id === card.id}
+                  selected={selectedCard?.id === card.id || pendingTargetSelection?.sourceCard.id === card.id}
                   onClick={() => {
                     clearCombatSelection();
-                    setSelectedCard(selectedCard?.id === card.id ? null : card);
+                    const isToggleOff = selectedCard?.id === card.id;
+                    setSelectedCard(isToggleOff ? null : card);
+                    if (!isToggleOff) {
+                      const matchingActs = legalActions.filter(a => a.type === 'PLAY_CARD' && a.cardId === card.id);
+                      const targetActs = matchingActs.filter(a => a.targetId);
+                      if (targetActs.length > 0) {
+                        let title = `Select Operative for ${card.name}`;
+                        let desc = `Choose which Operative in play will receive the benefit:`;
+                        let effectType: any = 'general';
+                        if (card.name === 'Assassination Training') {
+                          title = `Train Operative: Assassin Skill (+2 ASS)`;
+                          desc = `Select which Operative in play will receive +2 Assassin skill:`;
+                          effectType = 'skill_ass';
+                        } else if (card.name === 'Raid Training') {
+                          title = `Train Operative: Raid Skill (+2 RAID)`;
+                          desc = `Select which Operative in play will receive +2 Raid skill:`;
+                          effectType = 'skill_raid';
+                        } else if (card.name === 'Subterfuge Training') {
+                          title = `Train Operative: Subterfuge Skill (+2 SUB)`;
+                          desc = `Select which Operative in play will receive +2 Subterfuge skill:`;
+                          effectType = 'skill_sub';
+                        } else if (card.name === 'Targeted for Whitewash') {
+                          title = `Targeted for Whitewash: Eliminate Operative`;
+                          desc = `Select which enemy Operative in play to eliminate:`;
+                          effectType = 'elimination';
+                        } else if (card.name === 'Double Agent') {
+                          title = `Double Agent: Convert Operative`;
+                          desc = `Select which enemy Operative in play to convert:`;
+                          effectType = 'conversion';
+                        } else if (card.name === 'Acquisition') {
+                          title = `Acquisition: Acquire Location`;
+                          desc = `Select which enemy Location in play to acquire:`;
+                          effectType = 'acquisition';
+                        }
+                        setPendingTargetSelection({
+                          sourceCard: card,
+                          promptTitle: title,
+                          promptDescription: desc,
+                          effectType,
+                          actions: targetActs
+                        });
+                        return;
+                      }
+                    }
+                    setPendingTargetSelection(null);
                   }}
                 />
               );
@@ -1475,6 +1677,134 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           isOnlinePeerWaiting={isOnline && pendingDefense.defender.pid !== myPid}
           isSpecialAbilityAttack={pendingDefense.isSpecialAbilityAttack}
         />
+      )}
+
+      {/* INLINE OPERATIVE TARGET SELECTION PANEL */}
+      {pendingTargetSelection && (
+        <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/80 via-zinc-950/95 to-zinc-900 border-2 border-emerald-500/80 shadow-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between border-b border-emerald-500/30 pb-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400">
+                <Target className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{pendingTargetSelection.promptTitle}</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                    Source: {pendingTargetSelection.sourceCard.name}
+                  </span>
+                </h4>
+                <p className="text-xs text-zinc-300">
+                  {pendingTargetSelection.promptDescription} <span className="text-emerald-400 font-semibold">(Click an Operative below or on the battlefield)</span>
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setPendingTargetSelection(null);
+                setSelectedCard(null);
+              }}
+              className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition-colors flex items-center gap-1"
+            >
+              ✕ Cancel
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto pr-1">
+            {Array.from(new Set(pendingTargetSelection.actions.map(a => a.targetId))).map(targetId => {
+              const targetCard = engine.players.flatMap(p => p.battlefield).find(c => c.id === targetId);
+              if (!targetCard) return null;
+
+              const candidateActs = pendingTargetSelection.actions.filter(a => a.targetId === targetId);
+              const allDisabled = candidateActs.every(a => a.disabled);
+              const disabledReason = candidateActs.find(a => a.disabled)?.disabledReason;
+
+              const totalOff = (targetCard.off || 1) + engine.getCardStatTokensBuff(targetCard) + (targetCard.tempOffenseBuff || 0);
+              const totalDef = (targetCard.def || 1) + engine.getCardStatTokensBuff(targetCard) + (targetCard.tempDefenseBuff || 0);
+
+              return (
+                <div
+                  key={targetId}
+                  className={`p-3 rounded-lg border text-left transition-all flex flex-col justify-between ${
+                    allDisabled
+                      ? 'bg-zinc-900/40 border-zinc-800/50 opacity-60'
+                      : 'bg-zinc-900/90 hover:bg-zinc-800/90 border-emerald-500/50 hover:border-emerald-400 shadow-md hover:shadow-emerald-500/20'
+                  }`}
+                >
+                  <div className="space-y-1.5 mb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-white flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-emerald-400" />
+                        {targetCard.name}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        {targetCard.type}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs font-mono">
+                      <span className="text-rose-400 flex items-center gap-1">
+                        <Sword className="w-3 h-3" /> OFF: {totalOff}
+                      </span>
+                      <span className="text-blue-400 flex items-center gap-1">
+                        <Shield className="w-3 h-3" /> DEF: {totalDef}
+                      </span>
+                      {targetCard.techTokens ? (
+                        <span className="text-cyan-300 text-[10px] bg-cyan-950/80 border border-cyan-500/40 px-1 rounded">
+                          Tech +{targetCard.techTokens}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
+                      <span>ASS: {targetCard.ass || 0}</span>
+                      <span>•</span>
+                      <span>RAID: {targetCard.raid || 0}</span>
+                      <span>•</span>
+                      <span>SUB: {targetCard.sub || 0}</span>
+                    </div>
+
+                    {allDisabled && disabledReason && (
+                      <p className="text-[11px] text-rose-400/90 italic mt-1 bg-rose-950/40 border border-rose-800/40 rounded p-1">
+                        ⚠️ {disabledReason}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-zinc-800/80">
+                    {candidateActs.map((act, actIdx) => (
+                      <button
+                        key={actIdx}
+                        disabled={act.disabled}
+                        onClick={() => {
+                          if (!act.disabled) {
+                            handleAction(act);
+                            setPendingTargetSelection(null);
+                          }
+                        }}
+                        className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-between ${
+                          act.disabled
+                            ? 'bg-zinc-800/60 text-zinc-500 cursor-not-allowed border border-zinc-800'
+                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md border border-emerald-400/50'
+                        }`}
+                      >
+                        <span>
+                          {act.subChoice === 'buff_off' ? 'Select: +1 Offense' :
+                           act.subChoice === 'buff_def' ? 'Select: +1 Defense' :
+                           act.subChoice === 'assemble_strike' ? 'Give +2 Offense' :
+                           act.subChoice === 'assemble_defense' ? 'Give +2 Defense' :
+                           act.subChoice === 'buff_tech_token' ? `Select ${targetCard.name} (+1/+1 Tech)` :
+                           `Select ${targetCard.name}`}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* ACTION SELECTOR MENU */}

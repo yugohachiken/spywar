@@ -49,6 +49,16 @@ export const AFFILIATION_CARDS: Card[] = [
     cap: 5,
     specialAbility: 'spawn_token',
     abilityText: 'Tap: Spawn a 1/1 Shadow Warrior token with Assassin 1.'
+  },
+  {
+    id: 'aff_mica',
+    name: 'M.I.C.A.',
+    type: 'Affiliation',
+    cost: 0,
+    production: 2,
+    cap: 5,
+    specialAbility: 'buff_tech_token',
+    abilityText: 'Tap: Give target friendly operative +1/+1 Tech token.'
   }
 ];
 

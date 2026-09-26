@@ -11,7 +11,7 @@ interface CardViewProps {
   onDiscard?: () => void;
   onClick?: (e?: React.MouseEvent) => void;
   selected?: boolean;
-  selectionRole?: 'attacker' | 'defender' | 'target';
+  selectionRole?: 'attacker' | 'defender' | 'target' | 'benefit' | 'buff_target';
   selectionBadge?: string;
   compact?: boolean;
   playLabel?: string;
@@ -53,7 +53,13 @@ export const CardView: React.FC<CardViewProps> = ({
       if (selectionRole === 'target') {
         return 'ring-2 ring-rose-500 border-rose-500 shadow-rose-500/30 shadow-lg animate-pulse';
       }
+      if (selectionRole === 'benefit' || selectionRole === 'buff_target') {
+        return 'ring-2 ring-emerald-400 border-emerald-400 shadow-emerald-500/40 shadow-lg animate-pulse';
+      }
       return 'ring-2 ring-amber-400 border-amber-400 shadow-amber-500/20 shadow-lg';
+    }
+    if (selectionRole === 'benefit' || selectionRole === 'buff_target') {
+      return 'ring-2 ring-emerald-500/80 border-emerald-400 shadow-emerald-500/30 shadow-md animate-pulse cursor-pointer hover:ring-emerald-300';
     }
     if (isCurrentlyHighlighted) return 'ring-1 ring-amber-500/60 border-amber-500/80 shadow-amber-500/10 shadow-md';
     if (isPlayable) return 'border-emerald-500/80 hover:border-emerald-400 cursor-pointer shadow-emerald-500/10 shadow-md';
@@ -86,6 +92,8 @@ export const CardView: React.FC<CardViewProps> = ({
             ? 'bg-blue-600 text-white border border-blue-400'
             : selectionRole === 'target'
             ? 'bg-rose-600 text-white border border-rose-400'
+            : selectionRole === 'benefit' || selectionRole === 'buff_target'
+            ? 'bg-emerald-600 text-white border border-emerald-400 ring-1 ring-emerald-300'
             : 'bg-amber-500 text-zinc-950 border border-amber-300'
         }`}>
           {selectionBadge}

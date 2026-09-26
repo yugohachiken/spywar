@@ -909,31 +909,108 @@ export class SpywarEngine {
               });
             }
           } else if (selectedCard.specialAbility === 'assemble_strike_defense') {
-            actions.push({
-              type: 'PLAY_CARD',
-              cardId: selectedCard.id,
-              cardName: selectedCard.name,
-              card: selectedCard,
-              subChoice: 'assemble_strike',
-              desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
-            });
-            actions.push({
-              type: 'PLAY_CARD',
-              cardId: selectedCard.id,
-              cardName: selectedCard.name,
-              card: selectedCard,
-              subChoice: 'assemble_defense',
-              desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
-            });
-          } else if (selectedCard.type === 'Support') {
-            if (this.isSupportPlayable(selectedCard.name, player, opponent)) {
+            const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+            if (friendlyOps.length === 0) {
               actions.push({
                 type: 'PLAY_CARD',
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                desc: `Cast ${selectedCard.name} (${deployCostDesc})`
+                subChoice: 'assemble_strike',
+                desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
               });
+              actions.push({
+                type: 'PLAY_CARD',
+                cardId: selectedCard.id,
+                cardName: selectedCard.name,
+                card: selectedCard,
+                subChoice: 'assemble_defense',
+                desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
+              });
+            } else {
+              for (const op of friendlyOps) {
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'assemble_strike',
+                  desc: `Play ${selectedCard.name} (${deployCostDesc}) -> Give ${op.name} +2 Offense token`
+                });
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'assemble_defense',
+                  desc: `Play ${selectedCard.name} (${deployCostDesc}) -> Give ${op.name} +2 Defense token`
+                });
+              }
+            }
+          } else if (selectedCard.type === 'Support') {
+            if (this.isSupportPlayable(selectedCard.name, player, opponent)) {
+              if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(selectedCard.name)) {
+                const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+                for (const op of friendlyOps) {
+                  const skillLabel = selectedCard.name === 'Assassination Training' 
+                    ? '+2 Assassin skill' 
+                    : selectedCard.name === 'Raid Training' 
+                    ? '+2 Raid skill' 
+                    : '+2 Subterfuge skill';
+                  actions.push({
+                    type: 'PLAY_CARD',
+                    cardId: selectedCard.id,
+                    cardName: selectedCard.name,
+                    card: selectedCard,
+                    targetId: op.id,
+                    targetName: op.name,
+                    targetCard: op,
+                    desc: `Cast ${selectedCard.name} (${deployCostDesc}) -> Train ${op.name} (${skillLabel})`
+                  });
+                }
+              } else if (['Targeted for Whitewash', 'Double Agent'].includes(selectedCard.name)) {
+                const enemyOps = opponent.battlefield.filter(c => c.type === 'Operative');
+                for (const op of enemyOps) {
+                  actions.push({
+                    type: 'PLAY_CARD',
+                    cardId: selectedCard.id,
+                    cardName: selectedCard.name,
+                    card: selectedCard,
+                    targetId: op.id,
+                    targetName: op.name,
+                    targetCard: op,
+                    desc: `Cast ${selectedCard.name} (${deployCostDesc}) -> Target ${op.name}`
+                  });
+                }
+              } else if (selectedCard.name === 'Acquisition') {
+                const enemyLocs = opponent.battlefield.filter(c => c.type === 'Location');
+                for (const loc of enemyLocs) {
+                  actions.push({
+                    type: 'PLAY_CARD',
+                    cardId: selectedCard.id,
+                    cardName: selectedCard.name,
+                    card: selectedCard,
+                    targetId: loc.id,
+                    targetName: loc.name,
+                    targetCard: loc,
+                    desc: `Cast ${selectedCard.name} (${deployCostDesc}) -> Acquire ${loc.name}`
+                  });
+                }
+              } else {
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: selectedCard.id,
+                  cardName: selectedCard.name,
+                  card: selectedCard,
+                  desc: `Cast ${selectedCard.name} (${deployCostDesc})`
+                });
+              }
             }
           } else {
             actions.push({
@@ -1061,6 +1138,36 @@ export class SpywarEngine {
                   disabled: !canSub,
                   disabledReason: !canSub ? `${op.name} already has Subterfuge skill (Duplicate tokens disallowed in Settings)` : undefined,
                   desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Subterfuge skill${!canSub ? ' (Already has SUB)' : ''}`
+                });
+              }
+            }
+          } else if (player.affiliation.specialAbility === 'buff_tech_token' || player.affiliation.specialAbility === 'grant_tech_token' || player.affiliation.name === 'M.I.C.A.') {
+            const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+            if (friendlyOps.length === 0) {
+              actions.push({
+                type: 'TAP_ABILITY',
+                cardId: player.affiliation.id,
+                cardName: player.affiliation.name,
+                card: player.affiliation,
+                disabled: true,
+                disabledReason: 'No friendly operatives in play to receive Tech token',
+                desc: `${player.affiliation.name} Ability (Unavailable: No friendly operatives in play)`
+              });
+            } else {
+              for (const op of friendlyOps) {
+                const hasTech = ((op.techTokens as number) || 0) > 0;
+                actions.push({
+                  type: 'TAP_ABILITY',
+                  cardId: player.affiliation.id,
+                  cardName: player.affiliation.name,
+                  card: player.affiliation,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  subChoice: 'buff_tech_token',
+                  disabled: hasTech,
+                  disabledReason: hasTech ? `${op.name} already has a Tech token (Duplicate Tech tokens cannot be stacked)` : undefined,
+                  desc: `Exhaust ${player.affiliation.name}: Select ${op.name} to receive +1/+1 Tech token${hasTech ? ' (Already has Tech token)' : ''}`
                 });
               }
             }
@@ -1664,6 +1771,24 @@ export class SpywarEngine {
             desc: `Exhaust ${player.affiliation.name}: Grant ${op.name} +1 Subterfuge skill`
           });
         }
+      } else if (player.affiliation.specialAbility === 'buff_tech_token' || player.affiliation.specialAbility === 'grant_tech_token' || player.affiliation.name === 'M.I.C.A.') {
+        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        for (const op of friendlyOps) {
+          const hasTech = ((op.techTokens as number) || 0) > 0;
+          actions.push({
+            type: 'TAP_ABILITY',
+            cardId: player.affiliation.id,
+            cardName: player.affiliation.name,
+            card: player.affiliation,
+            targetId: op.id,
+            targetName: op.name,
+            targetCard: op,
+            subChoice: 'buff_tech_token',
+            disabled: hasTech,
+            disabledReason: hasTech ? `${op.name} already has a Tech token (Duplicate Tech tokens cannot be stacked)` : undefined,
+            desc: `Exhaust ${player.affiliation.name}: Select ${op.name} to receive +1/+1 Tech token${hasTech ? ' (Already has Tech token)' : ''}`
+          });
+        }
       } else {
         actions.push(...this.generateDynamicActionsForCard(player.affiliation, player, opponent));
       }
@@ -1749,15 +1874,109 @@ export class SpywarEngine {
               desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
             });
           }
-        } else if (card.type === 'Support') {
-          if (this.isSupportPlayable(card.name, player, opponent)) {
+        } else if (card.specialAbility === 'assemble_strike_defense') {
+          const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+          if (friendlyOps.length === 0) {
             actions.push({
               type: 'PLAY_CARD',
               cardId: card.id,
               cardName: card.name,
               card,
-              desc: `Cast ${card.name} (${deployCostDesc})`
+              subChoice: 'assemble_strike',
+              desc: `Play ${card.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
             });
+            actions.push({
+              type: 'PLAY_CARD',
+              cardId: card.id,
+              cardName: card.name,
+              card,
+              subChoice: 'assemble_defense',
+              desc: `Play ${card.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
+            });
+          } else {
+            for (const op of friendlyOps) {
+              actions.push({
+                type: 'PLAY_CARD',
+                cardId: card.id,
+                cardName: card.name,
+                card,
+                targetId: op.id,
+                targetName: op.name,
+                targetCard: op,
+                subChoice: 'assemble_strike',
+                desc: `Play ${card.name} (${deployCostDesc}) -> Give ${op.name} +2 Offense token`
+              });
+              actions.push({
+                type: 'PLAY_CARD',
+                cardId: card.id,
+                cardName: card.name,
+                card,
+                targetId: op.id,
+                targetName: op.name,
+                targetCard: op,
+                subChoice: 'assemble_defense',
+                desc: `Play ${card.name} (${deployCostDesc}) -> Give ${op.name} +2 Defense token`
+              });
+            }
+          }
+        } else if (card.type === 'Support') {
+          if (this.isSupportPlayable(card.name, player, opponent)) {
+            if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(card.name)) {
+              const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+              for (const op of friendlyOps) {
+                const skillLabel = card.name === 'Assassination Training' 
+                  ? '+2 Assassin skill' 
+                  : card.name === 'Raid Training' 
+                  ? '+2 Raid skill' 
+                  : '+2 Subterfuge skill';
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: card.id,
+                  cardName: card.name,
+                  card,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  desc: `Cast ${card.name} (${deployCostDesc}) -> Train ${op.name} (${skillLabel})`
+                });
+              }
+            } else if (['Targeted for Whitewash', 'Double Agent'].includes(card.name)) {
+              const enemyOps = opponent.battlefield.filter(c => c.type === 'Operative');
+              for (const op of enemyOps) {
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: card.id,
+                  cardName: card.name,
+                  card,
+                  targetId: op.id,
+                  targetName: op.name,
+                  targetCard: op,
+                  desc: `Cast ${card.name} (${deployCostDesc}) -> Target ${op.name}`
+                });
+              }
+            } else if (card.name === 'Acquisition') {
+              const enemyLocs = opponent.battlefield.filter(c => c.type === 'Location');
+              for (const loc of enemyLocs) {
+                actions.push({
+                  type: 'PLAY_CARD',
+                  cardId: card.id,
+                  cardName: card.name,
+                  card,
+                  targetId: loc.id,
+                  targetName: loc.name,
+                  targetCard: loc,
+                  desc: `Cast ${card.name} (${deployCostDesc}) -> Acquire ${loc.name}`
+                });
+              }
+            } else {
+              actions.push({
+                type: 'PLAY_CARD',
+                cardId: card.id,
+                cardName: card.name,
+                card,
+                desc: `Cast ${card.name} (${deployCostDesc})`
+              });
+            }
           }
         } else {
           actions.push({
@@ -2682,6 +2901,20 @@ export class SpywarEngine {
       const card = action.card!;
       card.exhausted = true;
 
+      if (card.specialAbility === 'buff_tech_token' || card.specialAbility === 'grant_tech_token' || card.name === 'M.I.C.A.') {
+        const target = action.targetCard || player.battlefield.find(c => c.id === action.targetId);
+        if (!target) {
+          return { success: false, message: 'No target operative selected to receive Tech token.' };
+        }
+        if ((target.techTokens || 0) > 0) {
+          return { success: false, message: `${target.name} already has a Tech token (Duplicate Tech tokens cannot be stacked).` };
+        }
+        target.techTokens = (target.techTokens || 0) + 1;
+        target.appliedTokens = [...(target.appliedTokens || []), 'tech'];
+        this.log(player.pid, 'AFF-ABILITY', `${card.name} placed +1/+1 Tech token on ${target.name} (Total Tech: +${target.techTokens}/+${target.techTokens}).`);
+        return { success: true, message: `Placed +1/+1 Tech token on ${target.name}.` };
+      }
+
       if (card.specialAbility === 'spawn_token') {
         const tokenExh = this.config.operativeSummonState === 'E';
         const token: Card = {
@@ -2894,9 +3127,14 @@ export class SpywarEngine {
       }
 
       if (effect.type === 'buff_stat') {
-        const target = action.targetCard || card;
+        const target = action.targetCard || player.battlefield.find(c => c.id === action.targetId) || card;
         const amt = effect.amount || 1;
-        if (effect.stat === 'off') {
+        if (effect.stat === 'both') {
+          target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
+          target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt}/+${amt} Offense and Defense to ${target.name}.`);
+          return { success: true, message: `Granted +${amt}/+${amt} Offense and Defense to ${target.name}.` };
+        } else if (effect.stat === 'off') {
           target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
           this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Offense to ${target.name}.`);
           return { success: true, message: `Granted +${amt} Offense to ${target.name}.` };
@@ -3137,8 +3375,12 @@ export class SpywarEngine {
         }
 
         const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+        const targetOp = action.targetCard || player.battlefield.find(c => c.id === action.targetId);
         if (action.subChoice === 'assemble_defense') {
-          if (friendlyOps.length > 0) {
+          if (targetOp) {
+            targetOp.tempDefenseBuff = (targetOp.tempDefenseBuff || 0) + 2;
+            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! +2 Defense token placed on ${targetOp.name}.`);
+          } else if (friendlyOps.length > 0) {
             friendlyOps[0].tempDefenseBuff = (friendlyOps[0].tempDefenseBuff || 0) + 2;
             this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! +2 Defense token placed on ${friendlyOps[0].name}.`);
           } else {
@@ -3161,7 +3403,10 @@ export class SpywarEngine {
           }
           return { success: true, message: `Assembled Defense Team (+2 Defense).` };
         } else {
-          if (friendlyOps.length > 0) {
+          if (targetOp) {
+            targetOp.tempOffenseBuff = (targetOp.tempOffenseBuff || 0) + 2;
+            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! +2 Offense token placed on ${targetOp.name}.`);
+          } else if (friendlyOps.length > 0) {
             friendlyOps[0].tempOffenseBuff = (friendlyOps[0].tempOffenseBuff || 0) + 2;
             this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! +2 Offense token placed on ${friendlyOps[0].name}.`);
           } else {
@@ -3189,7 +3434,7 @@ export class SpywarEngine {
       if (card.type === 'Support') {
         player.discard_pile.push(card);
         this.log(player.pid, 'CAST-SUPPORT', `Cast Support: ${card.name} (Cost: ${cost}).`);
-        this.resolveSupportSpell(player, opponent, card.name);
+        this.resolveSupportSpell(player, opponent, card.name, action.targetCard, action.targetId);
 
         if (card.abilityText || card.specialAbility) {
           const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility);
@@ -3889,27 +4134,30 @@ export class SpywarEngine {
     return chosen[0] || null;
   }
 
-  resolveSupportSpell(player: Player, opponent: Player, spellName: string) {
+  resolveSupportSpell(player: Player, opponent: Player, spellName: string, targetCard?: Card, targetId?: string) {
     if (spellName === 'Funding') {
       player.current_turn_coins += 3;
       this.log(player.pid, 'SPELL-FUND', '+3 coins added to floating pool.');
     } else if (spellName === 'Assassination Training') {
-      const ops = player.battlefield.filter(c => c.type === 'Operative');
-      if (ops.length > 0) {
-        ops[0].ass = (ops[0].ass || 0) + 2;
-        this.log(player.pid, 'SPELL-BUFF', `Trained ${ops[0].name}: Assassin skill +2.`);
+      const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+      const targetOp = (targetCard || player.battlefield.find(c => c.id === targetId)) || friendlyOps[0];
+      if (targetOp && targetOp.type === 'Operative') {
+        targetOp.ass = (targetOp.ass || 0) + 2;
+        this.log(player.pid, 'SPELL-BUFF', `Trained ${targetOp.name}: Assassin skill +2 (Total ASS: ${targetOp.ass}).`);
       }
     } else if (spellName === 'Raid Training') {
-      const ops = player.battlefield.filter(c => c.type === 'Operative');
-      if (ops.length > 0) {
-        ops[0].raid = (ops[0].raid || 0) + 2;
-        this.log(player.pid, 'SPELL-BUFF', `Trained ${ops[0].name}: Raid skill +2.`);
+      const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+      const targetOp = (targetCard || player.battlefield.find(c => c.id === targetId)) || friendlyOps[0];
+      if (targetOp && targetOp.type === 'Operative') {
+        targetOp.raid = (targetOp.raid || 0) + 2;
+        this.log(player.pid, 'SPELL-BUFF', `Trained ${targetOp.name}: Raid skill +2 (Total RAID: ${targetOp.raid}).`);
       }
     } else if (spellName === 'Subterfuge Training') {
-      const ops = player.battlefield.filter(c => c.type === 'Operative');
-      if (ops.length > 0) {
-        ops[0].sub = (ops[0].sub || 0) + 2;
-        this.log(player.pid, 'SPELL-BUFF', `Trained ${ops[0].name}: Subterfuge skill +2.`);
+      const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+      const targetOp = (targetCard || player.battlefield.find(c => c.id === targetId)) || friendlyOps[0];
+      if (targetOp && targetOp.type === 'Operative') {
+        targetOp.sub = (targetOp.sub || 0) + 2;
+        this.log(player.pid, 'SPELL-BUFF', `Trained ${targetOp.name}: Subterfuge skill +2 (Total SUB: ${targetOp.sub}).`);
       }
     } else if (spellName === 'Hired Assassin') {
       const tokExh = this.config.operativeSummonState === 'E';
@@ -3954,34 +4202,40 @@ export class SpywarEngine {
       }
     } else if (spellName === 'Targeted for Whitewash') {
       const enemyOps = opponent.battlefield.filter(c => c.type === 'Operative');
-      if (enemyOps.length > 0) {
-        const target = enemyOps[0];
+      const target = (targetCard || opponent.battlefield.find(c => c.id === targetId)) || enemyOps[0];
+      if (target) {
         const idx = opponent.battlefield.findIndex(c => c.id === target.id);
-        opponent.battlefield.splice(idx, 1);
-        opponent.discard_pile.push(target);
-        player.telemetry.eliminatedEnemyOpThisTurn = true;
-        this.log(player.pid, 'SPELL-WHITEWASH', `Eliminated enemy operative ${target.name}.`);
-        this.placeMissionTokens(player, 'kills', 1);
+        if (idx !== -1) {
+          opponent.battlefield.splice(idx, 1);
+          opponent.discard_pile.push(target);
+          player.telemetry.eliminatedEnemyOpThisTurn = true;
+          this.log(player.pid, 'SPELL-WHITEWASH', `Eliminated enemy operative ${target.name}.`);
+          this.placeMissionTokens(player, 'kills', 1);
+        }
       }
     } else if (spellName === 'Double Agent') {
       const enemyOps = opponent.battlefield.filter(c => c.type === 'Operative');
-      if (enemyOps.length > 0) {
-        const target = enemyOps[0];
+      const target = (targetCard || opponent.battlefield.find(c => c.id === targetId)) || enemyOps[0];
+      if (target) {
         const idx = opponent.battlefield.findIndex(c => c.id === target.id);
-        opponent.battlefield.splice(idx, 1);
-        target.exhausted = true;
-        player.battlefield.push(target);
-        this.log(player.pid, 'SPELL-AGENT', `Converted enemy operative ${target.name} into a double agent! (E)`);
+        if (idx !== -1) {
+          opponent.battlefield.splice(idx, 1);
+          target.exhausted = true;
+          player.battlefield.push(target);
+          this.log(player.pid, 'SPELL-AGENT', `Converted enemy operative ${target.name} into a double agent! (E)`);
+        }
       }
     } else if (spellName === 'Acquisition') {
       const enemyLocs = opponent.battlefield.filter(c => c.type === 'Location');
-      if (enemyLocs.length > 0) {
-        const target = enemyLocs[0];
+      const target = (targetCard || opponent.battlefield.find(c => c.id === targetId)) || enemyLocs[0];
+      if (target) {
         const idx = opponent.battlefield.findIndex(c => c.id === target.id);
-        opponent.battlefield.splice(idx, 1);
-        target.exhausted = true;
-        player.battlefield.push(target);
-        this.log(player.pid, 'SPELL-ACQ', `Acquired enemy location ${target.name}! (E)`);
+        if (idx !== -1) {
+          opponent.battlefield.splice(idx, 1);
+          target.exhausted = true;
+          player.battlefield.push(target);
+          this.log(player.pid, 'SPELL-ACQ', `Acquired enemy location ${target.name}! (E)`);
+        }
       }
     }
   }

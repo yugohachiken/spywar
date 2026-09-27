@@ -322,7 +322,10 @@ export const SUPPORT_CARDS: Card[] = [
     type: 'Support',
     cost: 3,
     qty: 4,
-    abilityText: 'Operatives in chosen operation gain +2 Offense or Defense.'
+    abilityText: 'Intercept: Give +2 OFF to Attack Team or +2 DEF to Defense Team.',
+    specialAbility: 'operative_crew_intercept',
+    isIntercept: true,
+    canPlayOnDefense: true
   },
   {
     id: 'sup_acq',

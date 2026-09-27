@@ -41,11 +41,12 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
 }) => {
   const [bonusDef, setBonusDef] = React.useState(0);
   const [playedReactions, setPlayedReactions] = React.useState<{ name: string; bonus: number }[]>([]);
+  const [reactionFeedback, setReactionFeedback] = React.useState<{ text: string; isError?: boolean } | null>(null);
 
   // Eligible out-of-turn defense cards in hand (Support, Intercept, Interrupt, or reactive abilities)
   const reactionCards = defender.hand.filter(c => {
     if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt) return true;
-    if (c.specialAbility === 'assemble_strike_defense') return true;
+    if (c.name === 'Operative Crew' || c.specialAbility === 'operative_crew_intercept' || c.specialAbility === 'assemble_strike_defense') return true;
     if (c.abilityText) {
       const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText);
       return parsed.canPlayOnDefense || parsed.isIntercept || parsed.isInterrupt || parsed.trigger === 'intercept' || parsed.trigger === 'interrupt';
@@ -53,11 +54,15 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
     return !isSpecialAbilityAttack && c.type === 'Support';
   });
 
-  const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike') => {
-    const res = engine.playDefensiveReactionCard(defender, card.id, subChoice);
+  const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike' | 'buff_defense_team' | 'buff_attack_team') => {
+    setReactionFeedback(null);
+    const res = engine.playDefensiveReactionCard(defender, card.id, subChoice, selectedDefenderIds);
     if (res.success) {
       setBonusDef(prev => prev + res.defBonus);
       setPlayedReactions(prev => [...prev, { name: card.name, bonus: res.defBonus }]);
+      setReactionFeedback({ text: res.message });
+    } else {
+      setReactionFeedback({ text: res.message, isError: true });
     }
   };
 
@@ -167,9 +172,65 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
               </span>
             )}
           </div>
+          {reactionFeedback && (
+            <div className={`p-2 rounded text-[11px] font-mono flex items-center gap-1.5 ${reactionFeedback.isError ? 'bg-rose-950/70 border border-rose-500/50 text-rose-300' : 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300'}`}>
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <span>{reactionFeedback.text}</span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {reactionCards.map(c => {
+              const isOperativeCrew = c.name === 'Operative Crew' || c.specialAbility === 'operative_crew_intercept';
               const isAssemble = c.specialAbility === 'assemble_strike_defense';
+              const cost = c.cost || 0;
+              const spendable = engine.getTotalSpendableCoins(defender);
+              const hasCoins = spendable >= cost;
+              const hasDefenseTeam = selectedDefenderIds.length > 0;
+
+              if (isOperativeCrew) {
+                return (
+                  <div key={c.id} className="flex items-center gap-2 bg-zinc-900 border border-emerald-500/50 rounded-lg p-2 shadow-sm">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-zinc-100 font-bold text-xs">{c.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30">Intercept</span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400 font-mono">
+                        Cost: {cost} Coins (Have {spendable})
+                      </div>
+                    </div>
+                    {!hasDefenseTeam ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-500 text-[11px] font-bold border border-zinc-700/50 cursor-not-allowed"
+                        title="Select at least 1 ready Operative on the battlefield to form a Defense Team first"
+                      >
+                        Select Defense Team First
+                      </button>
+                    ) : !hasCoins ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="px-2.5 py-1 rounded bg-zinc-800 text-amber-400 text-[11px] font-bold border border-amber-900/50 cursor-not-allowed"
+                        title={`Requires ${cost} Spendable Coins`}
+                      >
+                        Need {cost} Coins
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handlePlayReaction(c, 'buff_defense_team')}
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shadow-md transition-all flex items-center gap-1"
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                        <span>Intercept (+2 DEF to Defense Team)</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <div key={c.id} className="flex items-center gap-1.5 bg-zinc-900 border border-indigo-500/40 rounded-lg p-1.5">
                   <span className="text-zinc-200 font-bold text-xs">{c.name}</span>

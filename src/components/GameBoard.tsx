@@ -419,6 +419,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     setSelectedCombatTarget(null);
   };
 
+  const handleDeployOperativeCrew = (card: Card) => {
+    const act = legalActions.find(a => a.type === 'PLAY_CARD' && a.cardId === card.id && (a.subChoice === 'buff_attack_team' || a.subChoice === 'assemble_strike'))
+      || {
+        type: 'PLAY_CARD',
+        cardId: card.id,
+        cardName: card.name,
+        card,
+        subChoice: 'buff_attack_team',
+        attackerCards: selectedAttackers,
+        targetCard: selectedAttackers[0],
+        targetId: selectedAttackers[0]?.id,
+        desc: `Deploy ${card.name} (${engine.getCardDeployCost(bottomPlayer, card)} Coins) -> Give +2 OFF to Attack Team`
+      };
+    handleAction(act);
+  };
+
   const handleExecuteMultiAttack = () => {
     if (selectedAttackers.length === 0 || !selectedCombatOp) return;
 
@@ -1537,9 +1553,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                         title = `Train Operative: Subterfuge Skill (+2 SUB)`;
                         desc = `Select which Operative in play will receive +2 Subterfuge skill:`;
                         effectType = 'skill_sub';
-                      } else if (card.specialAbility === 'assemble_strike_defense') {
-                        title = `Assemble Team: Target Operative`;
-                        desc = `Select which Operative in play will receive the +2 token:`;
+                      } else if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
+                        title = `Operative Crew: Buff Attack or Defense Team`;
+                        desc = `Select an Operative in play to receive +2 OFF (Attack Team) or +2 DEF (Defense Team):`;
+                        effectType = 'team_buff';
                       } else if (card.name === 'Targeted for Whitewash') {
                         title = `Targeted for Whitewash: Eliminate Operative`;
                         desc = `Select which enemy Operative in play to eliminate:`;
@@ -1646,6 +1663,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           onSelectTarget={(target) => setSelectedCombatTarget(target)}
           onClearAttackers={clearCombatSelection}
           onExecuteAttack={handleExecuteMultiAttack}
+          onDeployOperativeCrew={handleDeployOperativeCrew}
           disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing')}
         />
       )}
@@ -1791,6 +1809,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                         <span>
                           {act.subChoice === 'buff_off' ? 'Select: +1 Offense' :
                            act.subChoice === 'buff_def' ? 'Select: +1 Defense' :
+                           act.subChoice === 'buff_attack_team' ? 'Give +2 OFF to Attack Team' :
+                           act.subChoice === 'buff_defense_team' ? 'Give +2 DEF to Defense Team' :
                            act.subChoice === 'assemble_strike' ? 'Give +2 Offense' :
                            act.subChoice === 'assemble_defense' ? 'Give +2 Defense' :
                            act.subChoice === 'buff_tech_token' ? `Select ${targetCard.name} (+1/+1 Tech)` :

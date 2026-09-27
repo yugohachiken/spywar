@@ -908,7 +908,7 @@ export class SpywarEngine {
                 desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
               });
             }
-          } else if (selectedCard.specialAbility === 'assemble_strike_defense') {
+          } else if (selectedCard.name === 'Operative Crew' || selectedCard.specialAbility === 'operative_crew_intercept' || selectedCard.specialAbility === 'assemble_strike_defense') {
             const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
             if (friendlyOps.length === 0) {
               actions.push({
@@ -916,16 +916,16 @@ export class SpywarEngine {
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                subChoice: 'assemble_strike',
-                desc: `Play ${selectedCard.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
+                subChoice: 'buff_attack_team',
+                desc: `Deploy ${selectedCard.name}: Give +2 OFF to Attack Team (${deployCostDesc})`
               });
               actions.push({
                 type: 'PLAY_CARD',
                 cardId: selectedCard.id,
                 cardName: selectedCard.name,
                 card: selectedCard,
-                subChoice: 'assemble_defense',
-                desc: `Play ${selectedCard.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
+                subChoice: 'buff_defense_team',
+                desc: `Deploy ${selectedCard.name}: Give +2 DEF to Defense Team (${deployCostDesc})`
               });
             } else {
               for (const op of friendlyOps) {
@@ -937,8 +937,8 @@ export class SpywarEngine {
                   targetId: op.id,
                   targetName: op.name,
                   targetCard: op,
-                  subChoice: 'assemble_strike',
-                  desc: `Play ${selectedCard.name} (${deployCostDesc}) -> Give ${op.name} +2 Offense token`
+                  subChoice: 'buff_attack_team',
+                  desc: `Deploy ${selectedCard.name} (${deployCostDesc}) -> Give +2 OFF to Attack Team (${op.name})`
                 });
                 actions.push({
                   type: 'PLAY_CARD',
@@ -948,8 +948,8 @@ export class SpywarEngine {
                   targetId: op.id,
                   targetName: op.name,
                   targetCard: op,
-                  subChoice: 'assemble_defense',
-                  desc: `Play ${selectedCard.name} (${deployCostDesc}) -> Give ${op.name} +2 Defense token`
+                  subChoice: 'buff_defense_team',
+                  desc: `Deploy ${selectedCard.name} (${deployCostDesc}) -> Give +2 DEF to Defense Team (${op.name})`
                 });
               }
             }
@@ -1874,7 +1874,7 @@ export class SpywarEngine {
               desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
             });
           }
-        } else if (card.specialAbility === 'assemble_strike_defense') {
+        } else if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
           const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
           if (friendlyOps.length === 0) {
             actions.push({
@@ -1882,16 +1882,16 @@ export class SpywarEngine {
               cardId: card.id,
               cardName: card.name,
               card,
-              subChoice: 'assemble_strike',
-              desc: `Play ${card.name}: Assemble Strike Team (+2 Offense token) (${deployCostDesc})`
+              subChoice: 'buff_attack_team',
+              desc: `Deploy ${card.name}: Give +2 OFF to Attack Team (${deployCostDesc})`
             });
             actions.push({
               type: 'PLAY_CARD',
               cardId: card.id,
               cardName: card.name,
               card,
-              subChoice: 'assemble_defense',
-              desc: `Play ${card.name}: Assemble Defense Team (+2 Defense token) (${deployCostDesc})`
+              subChoice: 'buff_defense_team',
+              desc: `Deploy ${card.name}: Give +2 DEF to Defense Team (${deployCostDesc})`
             });
           } else {
             for (const op of friendlyOps) {
@@ -1903,8 +1903,8 @@ export class SpywarEngine {
                 targetId: op.id,
                 targetName: op.name,
                 targetCard: op,
-                subChoice: 'assemble_strike',
-                desc: `Play ${card.name} (${deployCostDesc}) -> Give ${op.name} +2 Offense token`
+                subChoice: 'buff_attack_team',
+                desc: `Deploy ${card.name} (${deployCostDesc}) -> Give +2 OFF to Attack Team (${op.name})`
               });
               actions.push({
                 type: 'PLAY_CARD',
@@ -1914,8 +1914,8 @@ export class SpywarEngine {
                 targetId: op.id,
                 targetName: op.name,
                 targetCard: op,
-                subChoice: 'assemble_defense',
-                desc: `Play ${card.name} (${deployCostDesc}) -> Give ${op.name} +2 Defense token`
+                subChoice: 'buff_defense_team',
+                desc: `Deploy ${card.name} (${deployCostDesc}) -> Give +2 DEF to Defense Team (${op.name})`
               });
             }
           }
@@ -2672,7 +2672,7 @@ export class SpywarEngine {
     if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(cardName)) {
       return friendlyOps.length > 0;
     }
-    if (cardName === 'Operative Crew') return friendlyOps.length > 0 && enemyOps.length > 0;
+    if (cardName === 'Operative Crew') return friendlyOps.length > 0 && this.getTotalSpendableCoins(player) >= 3;
     if (['Double Agent', 'Targeted for Whitewash'].includes(cardName)) return enemyOps.length > 0;
     if (cardName === 'Acquisition') return enemyLocs.length > 0;
     if (cardName === 'Hiring Hackers') return this.getTotalSpendableCoins(opponent) > 0;
@@ -3366,7 +3366,7 @@ export class SpywarEngine {
         return { success: true, message: `Deployed ${card.name}.` };
       }
 
-      if (card.specialAbility === 'assemble_strike_defense') {
+      if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
         if (card.type === 'Support') {
           player.discard_pile.push(card);
         } else {
@@ -3375,14 +3375,17 @@ export class SpywarEngine {
         }
 
         const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-        const targetOp = action.targetCard || player.battlefield.find(c => c.id === action.targetId);
-        if (action.subChoice === 'assemble_defense') {
+        const targetOp = action.targetCard 
+          || player.battlefield.find(c => c.id === action.targetId)
+          || (action.attackerCards && action.attackerCards.length > 0 ? player.battlefield.find(c => c.id === action.attackerCards![0].id) : undefined);
+
+        if (action.subChoice === 'buff_defense_team' || action.subChoice === 'assemble_defense') {
           if (targetOp) {
             targetOp.tempDefenseBuff = (targetOp.tempDefenseBuff || 0) + 2;
-            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! +2 Defense token placed on ${targetOp.name}.`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 DEF granted to Defense Team (${targetOp.name}).`);
           } else if (friendlyOps.length > 0) {
             friendlyOps[0].tempDefenseBuff = (friendlyOps[0].tempDefenseBuff || 0) + 2;
-            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! +2 Defense token placed on ${friendlyOps[0].name}.`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 DEF granted to Defense Team (${friendlyOps[0].name}).`);
           } else {
             const defToken: Card = {
               id: `token_def_${Date.now()}`,
@@ -3399,16 +3402,16 @@ export class SpywarEngine {
               tempDefenseBuff: 2
             };
             player.battlefield.push(defToken);
-            this.log(player.pid, 'ASSEMBLE', `Assembled Defense Team! Deployed Defense Team Token (+2 Defense).`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! Defense Team Token created (+2 DEF).`);
           }
-          return { success: true, message: `Assembled Defense Team (+2 Defense).` };
+          return { success: true, message: `Operative Crew: +2 DEF granted to Defense Team.` };
         } else {
           if (targetOp) {
             targetOp.tempOffenseBuff = (targetOp.tempOffenseBuff || 0) + 2;
-            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! +2 Offense token placed on ${targetOp.name}.`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 OFF granted to Attack Team (${targetOp.name}).`);
           } else if (friendlyOps.length > 0) {
             friendlyOps[0].tempOffenseBuff = (friendlyOps[0].tempOffenseBuff || 0) + 2;
-            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! +2 Offense token placed on ${friendlyOps[0].name}.`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 OFF granted to Attack Team (${friendlyOps[0].name}).`);
           } else {
             const strikeToken: Card = {
               id: `token_strike_${Date.now()}`,
@@ -3425,9 +3428,9 @@ export class SpywarEngine {
               tempOffenseBuff: 2
             };
             player.battlefield.push(strikeToken);
-            this.log(player.pid, 'ASSEMBLE', `Assembled Strike Team! Deployed Strike Team Token (+2 Offense).`);
+            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! Attack Team Token created (+2 OFF).`);
           }
-          return { success: true, message: `Assembled Strike Team (+2 Offense).` };
+          return { success: true, message: `Operative Crew: +2 OFF granted to Attack Team.` };
         }
       }
 
@@ -4079,7 +4082,8 @@ export class SpywarEngine {
   playDefensiveReactionCard(
     defender: Player,
     cardId: string,
-    subChoice?: 'assemble_defense' | 'assemble_strike'
+    subChoice?: 'assemble_defense' | 'assemble_strike' | 'buff_defense_team' | 'buff_attack_team',
+    selectedDefenderIds?: string[]
   ): { success: boolean; defBonus: number; message: string } {
     const cardIdx = defender.hand.findIndex(c => c.id === cardId);
     if (cardIdx === -1) {
@@ -4087,10 +4091,47 @@ export class SpywarEngine {
     }
     const card = defender.hand[cardIdx];
     const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText);
-    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
+    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
 
     if (!isReaction) {
       return { success: false, defBonus: 0, message: 'Card cannot be played out of turn on defense.' };
+    }
+
+    // Special handling for Operative Crew / Intercept: Give +2 DEF to Defense Team
+    if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept') {
+      if (!selectedDefenderIds || selectedDefenderIds.length === 0) {
+        return {
+          success: false,
+          defBonus: 0,
+          message: 'You must have a Defense Team selected to play Operative Crew as an Intercept card.'
+        };
+      }
+      const cost = card.cost || 3;
+      const spendable = this.getTotalSpendableCoins(defender);
+      if (spendable < cost) {
+        return {
+          success: false,
+          defBonus: 0,
+          message: `Insufficient Spendable Resource. Requires ${cost} coins to play Operative Crew (have ${spendable}).`
+        };
+      }
+
+      this.spendCoins(defender, cost);
+      defender.hand.splice(cardIdx, 1);
+      defender.discard_pile.push(card);
+
+      const defOps = defender.battlefield.filter(c => selectedDefenderIds.includes(c.id));
+      for (const op of defOps) {
+        op.tempDefenseBuff = (op.tempDefenseBuff || 0) + 2;
+      }
+      const defBonus = 2;
+      this.log(defender.pid, 'DEF-INTERCEPT', `Played ${card.name} (Intercept) out of turn for ${cost} coins! +2 DEF granted to Defense Team [${defOps.map(d => d.name).join(', ')}].`);
+
+      return {
+        success: true,
+        defBonus,
+        message: `Intercept: +2 DEF granted to Defense Team (${defOps.map(d => d.name).join(', ')})!`
+      };
     }
 
     defender.hand.splice(cardIdx, 1);
@@ -4099,7 +4140,7 @@ export class SpywarEngine {
     let defBonus = 0;
     if (card.specialAbility === 'assemble_strike_defense') {
       const readyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-      if (subChoice === 'assemble_strike') {
+      if (subChoice === 'assemble_strike' || subChoice === 'buff_attack_team') {
         if (readyOps.length > 0) {
           readyOps[0].tempOffenseBuff = (readyOps[0].tempOffenseBuff || 0) + 2;
         }
@@ -4236,6 +4277,13 @@ export class SpywarEngine {
           player.battlefield.push(target);
           this.log(player.pid, 'SPELL-ACQ', `Acquired enemy location ${target.name}! (E)`);
         }
+      }
+    } else if (spellName === 'Operative Crew') {
+      const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
+      const targetOp = (targetCard || player.battlefield.find(c => c.id === targetId)) || friendlyOps[0];
+      if (targetOp) {
+        targetOp.tempOffenseBuff = (targetOp.tempOffenseBuff || 0) + 2;
+        this.log(player.pid, 'SPELL-CREW', `Operative Crew deployed! +2 OFF granted to ${targetOp.name}.`);
       }
     }
   }

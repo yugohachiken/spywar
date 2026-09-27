@@ -226,16 +226,16 @@ export class AbilityParserService {
     // 3. Detect Atomic Effects
     const effects: AtomicEffect[] = [];
 
-    // A. Assemble Strike or Defense Choice
-    if (lower.includes('strike team') && lower.includes('defense team')) {
-      recognizedKeywords.push('Assemble Strike / Defense Team');
+    // A. Attack Team or Defense Team Choice
+    if ((lower.includes('strike team') || lower.includes('attack team')) && lower.includes('defense team')) {
+      recognizedKeywords.push('Attack Team / Defense Team (+2 Buff)');
       effects.push({
         type: 'choice',
         choices: [
-          { type: 'buff_stat', stat: 'off', amount: 2, rawPhrase: 'Assemble Strike Team (+2 Offense)' },
-          { type: 'buff_stat', stat: 'def', amount: 2, rawPhrase: 'Assemble Defense Team (+2 Defense)' }
+          { type: 'buff_stat', stat: 'off', amount: 2, rawPhrase: 'Give +2 OFF to Attack Team' },
+          { type: 'buff_stat', stat: 'def', amount: 2, rawPhrase: 'Give +2 DEF to Defense Team' }
         ],
-        choiceLabels: ['Assemble Strike Team (+2 OFF)', 'Assemble Defense Team (+2 DEF)']
+        choiceLabels: ['Give +2 OFF to Attack Team', 'Give +2 DEF to Defense Team']
       });
     }
 
@@ -493,7 +493,7 @@ export class AbilityParserService {
     }
 
     // I. Intercept Defense Reaction
-    if (trigger === 'reaction_defense') {
+    if (trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept) {
       const defBonusMatch = lower.match(/\+?([1-9])\s*def\b/i);
       const bonus = defBonusMatch ? parseInt(defBonusMatch[1]) : 2;
       recognizedKeywords.push(`+${bonus} Defense Reaction`);

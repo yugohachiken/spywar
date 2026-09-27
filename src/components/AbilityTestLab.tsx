@@ -1230,7 +1230,7 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
               <p className="text-[11px] text-zinc-400 leading-relaxed">
                 Card can be deployed or use its special ability out of turn when attacked with a special ability or Operation.
               </p>
-              <div className="pt-1">
+              <div className="pt-1 space-y-1.5">
                 <button
                   onClick={() => {
                     const interceptCard: Card = {
@@ -1251,6 +1251,94 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 >
                   <span>Test "Play Intercept Card"</span>
                   <span className="text-[10px] font-mono opacity-80">Reaction</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    // Setup friendly operative for defense team
+                    let testOp = p1.battlefield.find(c => c.type === 'Operative');
+                    if (!testOp) {
+                      testOp = {
+                        id: `test_def_op_${Date.now()}`,
+                        name: 'Defense Operative',
+                        type: 'Operative',
+                        cost: 2,
+                        off: 2,
+                        def: 2,
+                        exhausted: false
+                      };
+                      p1.battlefield.push(testOp);
+                    }
+                    // Ensure player has spendable resources (at least 3 coins)
+                    p1.current_turn_coins = Math.max(p1.current_turn_coins, 5);
+
+                    const crewCard: Card = {
+                      id: `op_crew_${Date.now()}`,
+                      name: 'Operative Crew',
+                      type: 'Support',
+                      cost: 3,
+                      isIntercept: true,
+                      canPlayOnDefense: true,
+                      abilityText: 'Intercept: Give +2 OFF to Attack Team or +2 DEF to Defense Team.'
+                    };
+                    p1.hand.push(crewCard);
+
+                    const res = engine.playDefensiveReactionCard(p1, crewCard.id, 'buff_defense_team', [testOp.id]);
+                    addTestLog(`🛡️ [Operative Crew Intercept]: ${res.message} (Success: ${res.success}, DEF Bonus: +${res.defBonus}, Op DEF: ${testOp.def} + ${testOp.tempDefenseBuff})`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Operative Crew: Intercept (+2 DEF to Defense Team)"</span>
+                  <span className="text-[10px] font-mono opacity-80">Cost: 3 Coins</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    let testOp = p1.battlefield.find(c => c.type === 'Operative');
+                    if (!testOp) {
+                      testOp = {
+                        id: `test_atk_op_${Date.now()}`,
+                        name: 'Attack Operative',
+                        type: 'Operative',
+                        cost: 2,
+                        off: 3,
+                        def: 1,
+                        exhausted: false
+                      };
+                      p1.battlefield.push(testOp);
+                    }
+                    p1.current_turn_coins = Math.max(p1.current_turn_coins, 5);
+
+                    const crewCard: Card = {
+                      id: `op_crew_atk_${Date.now()}`,
+                      name: 'Operative Crew',
+                      type: 'Support',
+                      cost: 3,
+                      isIntercept: true,
+                      canPlayOnDefense: true,
+                      abilityText: 'Intercept: Give +2 OFF to Attack Team or +2 DEF to Defense Team.'
+                    };
+                    p1.hand.push(crewCard);
+
+                    const prevOff = testOp.off || 1;
+                    const prevBuff = testOp.tempOffenseBuff || 0;
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'PLAY_CARD',
+                      cardId: crewCard.id,
+                      cardName: crewCard.name,
+                      card: crewCard,
+                      subChoice: 'buff_attack_team',
+                      targetId: testOp.id,
+                      targetCard: testOp,
+                      attackerCards: [testOp],
+                      desc: 'Deploy Operative Crew -> Give +2 OFF to Attack Team'
+                    });
+                    addTestLog(`⚔️ [Operative Crew Deploy]: ${res.message} (Previous Total OFF: ${prevOff + prevBuff} -> New Total OFF: ${(testOp.off || 1) + (testOp.tempOffenseBuff || 0)})`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Operative Crew: Deploy (+2 OFF to Attack Team)"</span>
+                  <span className="text-[10px] font-mono opacity-80">Cost: 3 Coins</span>
                 </button>
               </div>
             </div>

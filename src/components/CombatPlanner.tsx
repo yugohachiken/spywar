@@ -16,6 +16,7 @@ interface CombatPlannerProps {
   onSelectTarget: (target: Card | null) => void;
   onClearAttackers: () => void;
   onExecuteAttack: () => void;
+  onDeployOperativeCrew?: (card: Card) => void;
   disabled?: boolean;
 }
 
@@ -30,6 +31,7 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
   onSelectTarget,
   onClearAttackers,
   onExecuteAttack,
+  onDeployOperativeCrew,
   disabled = false
 }) => {
   if (selectedAttackers.length === 0) return null;
@@ -140,6 +142,54 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Operative Crew Support Card Enhancement */}
+      {(() => {
+        const operativeCrewInHand = attackerPlayer.hand.find(c => c.name === 'Operative Crew' || c.specialAbility === 'operative_crew_intercept');
+        if (!operativeCrewInHand || !onDeployOperativeCrew) return null;
+        const cost = operativeCrewInHand.cost || 3;
+        const spendable = engine.getTotalSpendableCoins(attackerPlayer);
+        const canAfford = spendable >= cost;
+
+        return (
+          <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-3 text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <Sword className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-emerald-200">
+                  <span>{operativeCrewInHand.name} Support in Hand</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300">Cost: {cost} Coins</span>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Deploy to give <strong>+2 OFF</strong> to this Attack Team ({spendable} spendable coins available).
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={!canAfford || disabled}
+              onClick={() => onDeployOperativeCrew(operativeCrewInHand)}
+              className={`px-3 py-1.5 rounded text-xs font-bold transition-all shadow-md flex items-center gap-1 shrink-0 ${
+                canAfford
+                  ? 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white'
+                  : 'bg-zinc-800 text-amber-400 border border-amber-900/50 cursor-not-allowed'
+              }`}
+            >
+              {canAfford ? (
+                <>
+                  <Sword className="w-3.5 h-3.5" />
+                  <span>Deploy (+2 OFF to Team)</span>
+                </>
+              ) : (
+                <span>Need {cost} Coins</span>
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Step 1: Operation Selection */}
       <div className="space-y-1.5">

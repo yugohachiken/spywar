@@ -764,6 +764,15 @@ func _resolve_support_spell(player: PlayerState, opponent: PlayerState, card: Ca
 				player.eliminated_enemy_op_this_turn = true
 				_log(player, "WHITEWASH", "Eliminated enemy operative %s." % target_op.card_name)
 				mission_manager.add_mission_tokens(player, "kills", 1)
+		"Operative Crew":
+			var target_op: CardData = null
+			for c in player.battlefield:
+				if c.card_type == CardData.CardType.OPERATIVE and (target_id == "" or c.card_id == target_id):
+					target_op = c
+					break
+			if target_op:
+				target_op.temp_offense_buff += 2
+				_log(player, "OPERATIVE-CREW", "Operative Crew gave +2 OFF to %s." % target_op.card_name)
 
 func _declare_winner(player: PlayerState, reason: String) -> void:
 	is_game_over = true

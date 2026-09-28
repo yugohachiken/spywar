@@ -367,7 +367,7 @@ func end_turn() -> void:
 		mission_manager.add_mission_tokens(player, "no_ops", 1)
 	if player.unique_operations_this_turn.size() >= 3:
 		mission_manager.add_mission_tokens(player, "ops_in_turn", 1)
-	if player.hand.is_empty() and player.cards_played_this_turn >= 3:
+	if player.hand.is_empty() and player.cards_played_this_turn > 0:
 		mission_manager.add_mission_tokens(player, "empty_hand", 1)
 		
 	# Distribute remaining floating coins round-robin

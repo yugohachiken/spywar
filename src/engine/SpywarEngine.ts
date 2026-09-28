@@ -703,7 +703,7 @@ export class SpywarEngine {
     }
 
     // Check "Big Spender": played entire hand in 1 turn
-    if (player.hand.length === 0 && player.telemetry.cardsPlayedThisTurn >= 3) {
+    if (player.hand.length === 0 && player.telemetry.cardsPlayedThisTurn > 0) {
       this.placeMissionTokens(player, 'empty_hand', 1);
     }
 

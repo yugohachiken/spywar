@@ -36,6 +36,7 @@ export interface Card {
   isInterrupt?: boolean; // Card with Interrupt can be played anytime, out of player's turn, even when not being attacked
   isIntercept?: boolean; // Card with Intercept can be deployed or use special ability out of turn when attacked with card's special ability or operation
   discardAtEndOfTurn?: boolean; // Card is automatically discarded at the end of the player's turn
+  discardAfterDefending?: boolean; // Token or card is discarded immediately after defending an attack
   // Mission specific fields
   points?: number;
   req?: number;
@@ -69,6 +70,7 @@ export interface TurnTelemetry {
   playedNamedThisTurn: boolean;
   uniqueOpTypesThisTurn: Set<string>;
   cardsPlayedThisTurn: number;
+  emptiedHandThisTurn?: boolean;
 }
 
 export interface Player {

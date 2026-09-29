@@ -60,6 +60,8 @@ export class SpywarEngine {
   currentRound: number;
   currentPhase: TurnPhase;
   activePlayerIndex: number;
+  firstPlayerIndex: number;
+  turnsInCurrentRound: number;
   actionCounter: number;
   logs: LogEntry[];
   gameOver: boolean;
@@ -77,6 +79,8 @@ export class SpywarEngine {
     this.currentRound = 0;
     this.currentPhase = 'OPERATIONS';
     this.activePlayerIndex = 0;
+    this.firstPlayerIndex = 0;
+    this.turnsInCurrentRound = 0;
     this.actionCounter = 0;
     this.logs = [];
     this.gameOver = false;
@@ -224,12 +228,20 @@ export class SpywarEngine {
       operationsConductedThisTurn: 0,
       playedNamedThisTurn: false,
       uniqueOpTypesThisTurn: new Set<string>(),
-      cardsPlayedThisTurn: 0
+      cardsPlayedThisTurn: 0,
+      emptiedHandThisTurn: false
     };
     // Reset temp buffs
     for (const card of player.battlefield) {
       card.tempOffenseBuff = 0;
       card.tempDefenseBuff = 0;
+    }
+  }
+
+  checkBigSpender(player: Player) {
+    if (player.hand.length === 0 && player.telemetry.cardsPlayedThisTurn > 0 && !player.telemetry.emptiedHandThisTurn) {
+      player.telemetry.emptiedHandThisTurn = true;
+      this.placeMissionTokens(player, 'empty_hand', 1);
     }
   }
 
@@ -500,67 +512,60 @@ export class SpywarEngine {
     // Option 1: 'HIGHEST_PROD' (Default, Highest Affiliation Production Plays first)
     // Option 2: 'LOWEST_PROD' (Lowest Affiliation Production Plays first)
     // Option 3: 'RANDOM' (Random Initiative, not based on cards)
+    // IMPORTANT: Player 1 remains human and Player 2 remains AI in human_vs_ai mode.
+    // Initiative determines which player goes first (firstPlayerIndex: 0 or 1), without swapping player identities.
     const rule: InitiativeRule = this.config.initiativeRule || 'HIGHEST_PROD';
     const prod0 = this.players[0].affiliation?.production || 0;
     const prod1 = this.players[1].affiliation?.production || 0;
 
-    let shouldSwap = false;
+    let firstPlayerIndex = 0;
     let initiativeReason = '';
 
     if (rule === 'HIGHEST_PROD') {
       if (prod1 > prod0) {
-        shouldSwap = true;
+        firstPlayerIndex = 1;
         initiativeReason = `Higher Production (${prod1} > ${prod0})`;
       } else if (prod0 > prod1) {
-        shouldSwap = false;
+        firstPlayerIndex = 0;
         initiativeReason = `Higher Production (${prod0} > ${prod1})`;
       } else {
-        shouldSwap = Math.random() < 0.5;
+        firstPlayerIndex = Math.random() < 0.5 ? 0 : 1;
         initiativeReason = `Tied Production (${prod0} vs ${prod1}) resolved by coin flip`;
       }
     } else if (rule === 'LOWEST_PROD') {
       if (prod1 < prod0) {
-        shouldSwap = true;
+        firstPlayerIndex = 1;
         initiativeReason = `Lower Production (${prod1} < ${prod0})`;
       } else if (prod0 < prod1) {
-        shouldSwap = false;
+        firstPlayerIndex = 0;
         initiativeReason = `Lower Production (${prod0} < ${prod1})`;
       } else {
-        shouldSwap = Math.random() < 0.5;
+        firstPlayerIndex = Math.random() < 0.5 ? 0 : 1;
         initiativeReason = `Tied Production (${prod0} vs ${prod1}) resolved by coin flip`;
       }
     } else if (rule === 'RANDOM') {
-      shouldSwap = Math.random() < 0.5;
+      firstPlayerIndex = Math.random() < 0.5 ? 0 : 1;
       initiativeReason = `Random 50/50 coin flip (card production ignored)`;
     }
 
-    if (shouldSwap) {
-      this.players.reverse();
-      this.players[0].pid = 'P1';
-      this.players[1].pid = 'P2';
-      // Sync display names with P1/P2 assignments if standard names are used
-      if (this.players[0].isAI && !this.players[1].isAI) {
-        this.players[0].name = 'Player 1 (AI)';
-        this.players[1].name = 'Player 2 (Human)';
-      } else if (!this.players[0].isAI && this.players[1].isAI) {
-        this.players[0].name = 'Player 1 (Human)';
-        this.players[1].name = 'Player 2 (AI)';
-      }
-    }
-
+    this.firstPlayerIndex = firstPlayerIndex;
+    this.turnsInCurrentRound = 0;
     this.drawDeck = [...locDeck, ...opDeck, ...supDeck].sort(() => Math.random() - 0.5);
-    this.activePlayerIndex = 0;
+
+    const firstPlayer = this.players[firstPlayerIndex];
+    const secondPlayer = this.players[firstPlayerIndex === 0 ? 1 : 0];
 
     const ruleLabel = 
       rule === 'HIGHEST_PROD' ? 'Highest Affiliation Production' :
       rule === 'LOWEST_PROD' ? 'Lowest Affiliation Production' : 'Random Initiative';
 
-    this.log('P1', 'SETUP', `Game initialized with '${this.activeDeckName}'. Initiative rule: [${ruleLabel}] -> P1 awarded to ${this.players[0].name} (${this.players[0].affiliation?.name}, Prod: ${this.players[0].affiliation?.production}) due to ${initiativeReason}. P2 is ${this.players[1].name} (${this.players[1].affiliation?.name}, Prod: ${this.players[1].affiliation?.production}).`);
+    this.log(firstPlayer.pid, 'SETUP', `Game initialized with '${this.activeDeckName}'. Initiative rule: [${ruleLabel}] -> Initiative awarded to ${firstPlayer.name} (${firstPlayer.affiliation?.name}, Prod: ${firstPlayer.affiliation?.production}) due to ${initiativeReason}. ${firstPlayer.name} goes first! (P1 is ${this.players[0].name}, P2 is ${this.players[1].name})`);
     this.startRound(1);
   }
 
   startRound(roundNumber: number) {
     this.currentRound = roundNumber;
+    this.turnsInCurrentRound = 0;
     const maxMissions = this.config.maxMissionsInPlay || 0;
     const missionsToDraw = roundNumber === 1 
       ? Math.max(1, Math.min(this.config.startingMissionCards || 1, this.missionDeck.length)) 
@@ -579,8 +584,9 @@ export class SpywarEngine {
         drawn++;
       }
     }
-    this.log(this.getActivePlayer().pid, 'MISSION-REVEAL', `Round ${roundNumber} Table Missions (${this.missionsOnTable.length}${maxMissions > 0 ? `/${maxMissions} max` : ''}): ${this.missionsOnTable.map(m => `'${m.name}' (${m.points} pts)`).join(', ')}.`);
-    this.startPlayerTurn(0);
+    const starter = this.players[this.firstPlayerIndex];
+    this.log(starter.pid, 'MISSION-REVEAL', `Round ${roundNumber} Table Missions (${this.missionsOnTable.length}${maxMissions > 0 ? `/${maxMissions} max` : ''}): ${this.missionsOnTable.map(m => `'${m.name}' (${m.points} pts)`).join(', ')}.`);
+    this.startPlayerTurn(this.firstPlayerIndex);
   }
 
   startPlayerTurn(playerIndex: number) {
@@ -692,6 +698,14 @@ export class SpywarEngine {
       this.log(player.pid, 'END-TURN-DISCARD', `Discarded [${endTurnDiscards.map(c => c.name).join(', ')}] from battlefield to discard pile (Keyword: Discard at end of turn / Discard token).`);
     }
 
+    // Reset temporary stat buffs on all cards in play across both players at end of turn
+    for (const p of this.players) {
+      for (const card of p.battlefield) {
+        card.tempOffenseBuff = 0;
+        card.tempDefenseBuff = 0;
+      }
+    }
+
     // Check "Observer" mission: no offensive operations this turn
     if (player.telemetry.operationsConductedThisTurn === 0) {
       this.placeMissionTokens(player, 'no_ops', 1);
@@ -703,7 +717,8 @@ export class SpywarEngine {
     }
 
     // Check "Big Spender": played entire hand in 1 turn
-    if (player.hand.length === 0 && player.telemetry.cardsPlayedThisTurn > 0) {
+    if (!player.telemetry.emptiedHandThisTurn && (player.hand.length === 0 && player.telemetry.cardsPlayedThisTurn > 0)) {
+      player.telemetry.emptiedHandThisTurn = true;
       this.placeMissionTokens(player, 'empty_hand', 1);
     }
 
@@ -722,8 +737,10 @@ export class SpywarEngine {
     }
 
     // Next turn or next round
-    if (this.activePlayerIndex === 0) {
-      this.startPlayerTurn(1);
+    this.turnsInCurrentRound++;
+    if (this.turnsInCurrentRound < 2) {
+      const nextPlayerIndex = this.activePlayerIndex === 0 ? 1 : 0;
+      this.startPlayerTurn(nextPlayerIndex);
     } else {
       if (this.currentRound >= this.config.rounds) {
         this.evaluateEndgame();
@@ -1874,7 +1891,7 @@ export class SpywarEngine {
               desc: `Deploy Global Dominion Plan (${deployCostDesc}) -> WIN GAME!`
             });
           }
-        } else if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
+        } else if (card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
           const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
           if (friendlyOps.length === 0) {
             actions.push({
@@ -2180,11 +2197,17 @@ export class SpywarEngine {
     const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || preset?.description, preset?.config);
     if (!parsed.isValid) return actions;
 
-    // Defense reaction abilities are resolved during attack interception, not as standard turn actions
-    if (parsed.trigger === 'reaction_defense') return actions;
+    // Defense reaction & intercept abilities are resolved during attack interception, not as standard turn actions
+    if (parsed.trigger === 'reaction_defense' || parsed.trigger === 'intercept' || parsed.isIntercept || card.isIntercept || parsed.canPlayOnDefense) return actions;
 
-    // Check tap condition: cannot tap if already exhausted
-    if (parsed.requiresTap && card.exhausted) return actions;
+    // Passive abilities provide static continuous effects, not activated actions
+    if (parsed.isPassive || parsed.trigger === 'passive') return actions;
+
+    // Deploy abilities trigger upon entering play, not as activated actions
+    if (parsed.trigger === 'deploy') return actions;
+
+    // In-play cards that are exhausted cannot take actions
+    if (card.exhausted) return actions;
 
     // Check coin/resource cost condition ("Pay x")
     const costCoins = parsed.costCoins || 0;
@@ -2194,25 +2217,26 @@ export class SpywarEngine {
       ? `Requires ${costCoins} resource(s) (You have ${playerSpendable})`
       : undefined;
 
+    // An activated ability on a card in play must exhaust unless it's a sacrifice or pay-only trigger
+    const shouldRequireTap = parsed.requiresTap || parsed.trigger === 'tap' || costCoins <= 0;
+
     // Determine descriptive prefix
     let prefix = '';
-    if (parsed.isPassive) {
-      prefix = costCoins > 0 ? `Passive [Pay ${costCoins}] ${card.name}` : `Passive ${card.name}`;
-    } else if (parsed.requiresSacrifice) {
+    if (parsed.requiresSacrifice) {
       prefix = costCoins > 0 ? `Sacrifice [Pay ${costCoins}] ${card.name}` : `Sacrifice ${card.name}`;
-    } else if (parsed.requiresTap) {
+    } else if (shouldRequireTap) {
       prefix = costCoins > 0 ? `Exhaust [Pay ${costCoins}] ${card.name}` : `Exhaust ${card.name}`;
     } else if (costCoins > 0) {
       prefix = `[Pay ${costCoins}] ${card.name}`;
     } else {
-      prefix = `${card.name}`;
+      prefix = `Exhaust ${card.name}`;
     }
 
     const baseDynamicData = {
       trigger: parsed.trigger,
       costCoins: parsed.costCoins,
-      requiresTap: parsed.requiresTap,
-      isPassive: parsed.isPassive,
+      requiresTap: shouldRequireTap,
+      isPassive: false,
       requiresSacrifice: parsed.requiresSacrifice
     };
 
@@ -2672,7 +2696,7 @@ export class SpywarEngine {
     if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(cardName)) {
       return friendlyOps.length > 0;
     }
-    if (cardName === 'Operative Crew') return friendlyOps.length > 0 && this.getTotalSpendableCoins(player) >= 3;
+    if (cardName.startsWith('Operative Crew')) return friendlyOps.length > 0 && this.getTotalSpendableCoins(player) >= 3;
     if (['Double Agent', 'Targeted for Whitewash'].includes(cardName)) return enemyOps.length > 0;
     if (cardName === 'Acquisition') return enemyLocs.length > 0;
     if (cardName === 'Hiring Hackers') return this.getTotalSpendableCoins(opponent) > 0;
@@ -2698,6 +2722,7 @@ export class SpywarEngine {
 
     player.telemetry.cardsPlayedThisTurn++;
     this.recordCardPlayed(cardToDeploy);
+    this.checkBigSpender(player);
 
     if (cardToDeploy.isNamed) {
       player.telemetry.playedNamedThisTurn = true;
@@ -3022,11 +3047,15 @@ export class SpywarEngine {
         this.log(player.pid, 'PAY-RESOURCE', `Paid ${costCoins} resource(s) to activate ${card.name} ability.`);
       }
 
-      // 2. Check Tap vs Passive (Passive cards do NOT exhaust when using special ability)
-      const shouldExhaust = effData?.requiresTap ?? (trigger === 'tap');
-      const isPassive = effData?.isPassive ?? (trigger === 'passive');
+      // 2. Find real card in battlefield or affiliation to ensure state is mutated
+      const realCard = player.battlefield.find(c => c.id === card.id)
+        || (player.affiliation?.id === card.id ? player.affiliation : null)
+        || card;
 
+      const isPassive = effData?.isPassive ?? (trigger === 'passive');
+      const shouldExhaust = effData?.requiresTap ?? (trigger === 'tap' || (!costCoins && !isPassive));
       if (shouldExhaust && !isPassive) {
+        realCard.exhausted = true;
         card.exhausted = true;
       }
 
@@ -3320,11 +3349,12 @@ export class SpywarEngine {
         return { success: false, message: 'Not enough coins to play card.' };
       }
 
-      const idx = player.hand.findIndex(c => c.id === card.id);
+      const idx = player.hand.findIndex(c => c.id === card.id || c.name === card.name);
       if (idx !== -1) player.hand.splice(idx, 1);
 
       player.telemetry.cardsPlayedThisTurn++;
       this.recordCardPlayed(card);
+      this.checkBigSpender(player);
 
       if (card.isNamed) {
         player.telemetry.playedNamedThisTurn = true;
@@ -3366,7 +3396,7 @@ export class SpywarEngine {
         return { success: true, message: `Deployed ${card.name}.` };
       }
 
-      if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
+      if (card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
         if (card.type === 'Support') {
           player.discard_pile.push(card);
         } else {
@@ -3478,6 +3508,7 @@ export class SpywarEngine {
       if (defRes.thwarted) {
         this.log(opponent.pid, threatType === 'ass' ? 'THWART-ASS' : 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} teamed up against ${op.name}'s Attack (ATK: ${incomingAttack})! Attack THWARTED!`);
         this.placeMissionTokens(opponent, threatType === 'ass' ? 'thwart_ass' : 'thwart_sub', 1);
+        this.cleanupDefendingTokens(opponent, defRes.defenders);
         return { success: true, thwarted: true, message: `${op.name} attack thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       }
 
@@ -3501,6 +3532,7 @@ export class SpywarEngine {
         if (opponent.hand.length === 0 && count > 0) {
           this.placeMissionTokens(player, 'hand_wipe', 1);
         }
+        this.cleanupDefendingTokens(opponent, defRes.defenders);
         return { success: true, message: `${op.name} forced ${opponent.name} to discard ${count} card(s).`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       } else {
         // Discard 2 in-play cards
@@ -3517,6 +3549,7 @@ export class SpywarEngine {
           }
         }
         this.log(player.pid, 'SACRIFICE', `Sacrificed ${op.name}! Discarded ${removed.length} card(s) from ${opponent.name}'s battlefield: [${removed.join(', ')}].`);
+        this.cleanupDefendingTokens(opponent, defRes.defenders);
         return { success: true, message: `${op.name} eliminated ${removed.length} card(s): ${removed.join(', ')}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
       }
     }
@@ -3538,6 +3571,7 @@ export class SpywarEngine {
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-ASS', `🛡️ DEFENSIVE TEAM! ${defRes.message} stepped in to thwart Boksoon's strike (ATK: ${atk})! Attack negated!`);
           this.placeMissionTokens(opponent, 'thwart_ass', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Boksoon strike thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3548,6 +3582,7 @@ export class SpywarEngine {
           player.telemetry.eliminatedEnemyOpThisTurn = true;
           this.log(player.pid, 'BOKSOON-EXECUTE', `Boksoon executed targeted assassination on ${target.name} (Assassin skill >= 1). Target destroyed!`);
           this.placeMissionTokens(player, 'kills', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, message: `Boksoon executed ${target.name}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
@@ -3560,6 +3595,7 @@ export class SpywarEngine {
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} intercepted Mata Hari's infiltration (ATK: ${atk})! Attack neutralized!`);
           this.placeMissionTokens(opponent, 'thwart_sub', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Mata Hari infiltration thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3572,6 +3608,7 @@ export class SpywarEngine {
           if (opponent.hand.length === 0) {
             this.placeMissionTokens(player, 'hand_wipe', 1);
           }
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, message: `Stole ${stolen.name} from enemy hand!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
@@ -3584,6 +3621,7 @@ export class SpywarEngine {
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-RAID', `🛡️ DEFENSIVE TEAM! ${defRes.message} blocked Ghost's siphon exploit (ATK: ${atk})! Zero resources stolen.`);
           this.placeMissionTokens(opponent, 'thwart_raid', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Ghost siphon thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3596,6 +3634,7 @@ export class SpywarEngine {
           player.telemetry.uniqueOpTypesThisTurn.add('raid');
           this.log(player.pid, 'GHOST-ACTIVATE', `Ghost activated cyber-siphon! Captured ${stolen} resources from ${opponent.name}.`);
           this.placeMissionTokens(player, 'res_theft', stolen);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, message: `Ghost captured ${stolen} resources.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
@@ -3677,6 +3716,7 @@ export class SpywarEngine {
           }
           this.log(opponent.pid, 'ASSASSINATE-FAILED', `🛡️ ASSASSINATION FAILED! ${target.name} and defense (Total DEF: ${effectiveDef}) repelled ${attackerNames} (ATK: ${atk})! Attacking operative cards discarded.`);
           this.placeMissionTokens(opponent, 'thwart_ass', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Assassination failed! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
       }
@@ -3753,6 +3793,7 @@ export class SpywarEngine {
           }
           this.log(opponent.pid, 'THWART-RAID', `🛡️ RAID THWARTED! ${defRes.message} (DEF: ${effectiveDef}) repelled ${attackerNames} (ATK: ${totalRaidOff})! Attacking operatives discarded.`);
           this.placeMissionTokens(opponent, 'thwart_raid', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Raid thwarted! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
       }
@@ -3830,6 +3871,7 @@ export class SpywarEngine {
           }
           this.log(opponent.pid, 'THWART-SUB', `🛡️ SUBTERFUGE THWARTED! ${defRes.message} (DEF: ${effectiveDef}) blocked ${attackerNames} (ATK: ${totalSubOff})! Attacking operatives discarded.`);
           this.placeMissionTokens(opponent, 'thwart_sub', 1);
+          this.cleanupDefendingTokens(opponent, defRes.defenders);
           return { success: true, thwarted: true, message: `Subterfuge thwarted! Attacking operatives discarded.`, defendersUsed: defRes.defenders, totalDef: effectiveDef };
         }
       }
@@ -3853,6 +3895,9 @@ export class SpywarEngine {
         }
         player.current_turn_coins -= cost;
         player.hand.splice(inHandIdx, 1);
+        player.telemetry.cardsPlayedThisTurn++;
+        this.recordCardPlayed(card);
+        this.checkBigSpender(player);
 
         if (card.type === 'Support') {
           player.discard_pile.push(card);
@@ -4021,6 +4066,21 @@ export class SpywarEngine {
     return [];
   }
 
+  // Cleans up any tokens or cards marked discardAfterDefending that participated in defense
+  cleanupDefendingTokens(defender: Player, defenders: Card[]) {
+    if (!defenders || defenders.length === 0) return;
+    for (const d of defenders) {
+      if (d.discardAfterDefending) {
+        const idx = defender.battlefield.findIndex(c => c.id === d.id);
+        if (idx !== -1) {
+          defender.battlefield.splice(idx, 1);
+          defender.discard_pile.push(d);
+          this.log(defender.pid, 'DEF-DISCARD', `[${d.name}] was discarded after defending (Keyword: Discard operative token after defending).`);
+        }
+      }
+    }
+  }
+
   // Resolves assigned defense against an incoming attack
   resolveDefense(
     defender: Player,
@@ -4078,27 +4138,104 @@ export class SpywarEngine {
     };
   }
 
-  // Plays a defensive support reaction card out of turn when player is defending
+  // Plays a defensive support or intercept reaction card out of turn when player is defending
   playDefensiveReactionCard(
     defender: Player,
     cardId: string,
     subChoice?: 'assemble_defense' | 'assemble_strike' | 'buff_defense_team' | 'buff_attack_team',
     selectedDefenderIds?: string[]
-  ): { success: boolean; defBonus: number; message: string } {
+  ): { success: boolean; defBonus: number; message: string; createdDefenderId?: string } {
+    const isAffiliation = defender.affiliation?.id === cardId;
     const cardIdx = defender.hand.findIndex(c => c.id === cardId);
-    if (cardIdx === -1) {
-      return { success: false, defBonus: 0, message: 'Card not found in hand.' };
+    const inPlayCard = defender.battlefield.find(c => c.id === cardId);
+    const card = isAffiliation ? defender.affiliation! : (cardIdx !== -1 ? defender.hand[cardIdx] : inPlayCard);
+
+    if (!card) {
+      return { success: false, defBonus: 0, message: 'Card not found in hand, battlefield, or affiliation.' };
     }
-    const card = defender.hand[cardIdx];
-    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText);
-    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
+
+    if (isAffiliation || inPlayCard) {
+      if (card.exhausted) {
+        return { success: false, defBonus: 0, message: `${card.name} is already exhausted.` };
+      }
+    }
+
+    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility);
+    const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
 
     if (!isReaction) {
-      return { success: false, defBonus: 0, message: 'Card cannot be played out of turn on defense.' };
+      return { success: false, defBonus: 0, message: `${card.name} cannot be used out of turn on defense.` };
+    }
+
+    // Check coin cost
+    const cost = (parsed.costCoins || 0) || (cardIdx !== -1 && card.type === 'Support' ? (card.cost || 0) : 0);
+    if (cost > 0) {
+      const spendable = this.getTotalSpendableCoins(defender);
+      if (spendable < cost) {
+        return {
+          success: false,
+          defBonus: 0,
+          message: `Insufficient Spendable Resource. Requires ${cost} coins to play ${card.name} (have ${spendable}).`
+        };
+      }
+    }
+
+    // Intercept: Create / Spawn Operative Token (e.g. The Company)
+    const spawnEff = parsed.effects.find(e => e.type === 'spawn_token');
+    const isTokenSpawner = spawnEff || (card.abilityText && /token/i.test(card.abilityText)) || card.specialAbility === 'the_company_intercept' || card.name.includes('The Company');
+    if (isTokenSpawner) {
+      if (cost > 0) this.spendCoins(defender, cost);
+
+      const tokenOff = spawnEff?.tokenOff || 2;
+      const tokenDef = spawnEff?.tokenDef || 2;
+      const tokenName = spawnEff?.tokenName || 'Operative Token';
+      const discardAfterDefending = spawnEff?.discardAfterDefending ?? true;
+
+      const tokenCard: Card = {
+        id: `token_intercept_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: tokenName,
+        type: 'Operative',
+        cost: 0,
+        off: tokenOff,
+        def: tokenDef,
+        ass: 0,
+        raid: 0,
+        sub: 0,
+        isToken: true,
+        exhausted: false,
+        isIntercept: true,
+        canPlayOnDefense: true,
+        discardAfterDefending
+      };
+
+      defender.battlefield.push(tokenCard);
+
+      if (isAffiliation || inPlayCard) {
+        card.exhausted = true;
+      } else if (cardIdx !== -1) {
+        defender.hand.splice(cardIdx, 1);
+        defender.discard_pile.push(card);
+        defender.telemetry.cardsPlayedThisTurn++;
+        this.recordCardPlayed(card);
+        this.checkBigSpender(defender);
+      }
+
+      this.log(
+        defender.pid,
+        'DEF-INTERCEPT',
+        `🛡️ INTERCEPT ACTIVATED! ${card.name} created a ${tokenOff}/${tokenDef} ${tokenName} (R) to intercept the attack! Token will be discarded after defending.`
+      );
+
+      return {
+        success: true,
+        defBonus: 0,
+        createdDefenderId: tokenCard.id,
+        message: `Intercept: Created ${tokenOff}/${tokenDef} ${tokenName}! Discards after defending.`
+      };
     }
 
     // Special handling for Operative Crew / Intercept: Give +2 DEF to Defense Team
-    if (card.name === 'Operative Crew' || card.specialAbility === 'operative_crew_intercept') {
+    if (card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept') {
       if (!selectedDefenderIds || selectedDefenderIds.length === 0) {
         return {
           success: false,
@@ -4106,26 +4243,33 @@ export class SpywarEngine {
           message: 'You must have a Defense Team selected to play Operative Crew as an Intercept card.'
         };
       }
-      const cost = card.cost || 3;
+      const crewCost = card.cost || 3;
       const spendable = this.getTotalSpendableCoins(defender);
-      if (spendable < cost) {
+      if (spendable < crewCost) {
         return {
           success: false,
           defBonus: 0,
-          message: `Insufficient Spendable Resource. Requires ${cost} coins to play Operative Crew (have ${spendable}).`
+          message: `Insufficient Spendable Resource. Requires ${crewCost} coins to play Operative Crew (have ${spendable}).`
         };
       }
 
-      this.spendCoins(defender, cost);
-      defender.hand.splice(cardIdx, 1);
-      defender.discard_pile.push(card);
+      this.spendCoins(defender, crewCost);
+      if (cardIdx !== -1) {
+        defender.hand.splice(cardIdx, 1);
+        defender.discard_pile.push(card);
+        defender.telemetry.cardsPlayedThisTurn++;
+        this.recordCardPlayed(card);
+        this.checkBigSpender(defender);
+      } else {
+        card.exhausted = true;
+      }
 
       const defOps = defender.battlefield.filter(c => selectedDefenderIds.includes(c.id));
       for (const op of defOps) {
         op.tempDefenseBuff = (op.tempDefenseBuff || 0) + 2;
       }
       const defBonus = 2;
-      this.log(defender.pid, 'DEF-INTERCEPT', `Played ${card.name} (Intercept) out of turn for ${cost} coins! +2 DEF granted to Defense Team [${defOps.map(d => d.name).join(', ')}].`);
+      this.log(defender.pid, 'DEF-INTERCEPT', `Played ${card.name} (Intercept) out of turn for ${crewCost} coins! +2 DEF granted to Defense Team [${defOps.map(d => d.name).join(', ')}].`);
 
       return {
         success: true,
@@ -4134,8 +4278,17 @@ export class SpywarEngine {
       };
     }
 
-    defender.hand.splice(cardIdx, 1);
-    defender.discard_pile.push(card);
+    if (cost > 0) this.spendCoins(defender, cost);
+
+    if (cardIdx !== -1) {
+      defender.hand.splice(cardIdx, 1);
+      defender.discard_pile.push(card);
+      defender.telemetry.cardsPlayedThisTurn++;
+      this.recordCardPlayed(card);
+      this.checkBigSpender(defender);
+    } else {
+      card.exhausted = true;
+    }
 
     let defBonus = 0;
     if (card.specialAbility === 'assemble_strike_defense') {
@@ -4160,13 +4313,13 @@ export class SpywarEngine {
       } else {
         defBonus = card.def || 2;
       }
-      this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn as defensive reaction (+${defBonus} DEF)!`);
+      this.log(defender.pid, 'DEF-REACTION', `Activated ${card.name} out of turn as defensive reaction (+${defBonus} DEF)!`);
     }
 
     return {
       success: true,
       defBonus,
-      message: `Played ${card.name} out of turn: +${defBonus} Defense bonus granted!`
+      message: `Activated ${card.name} out of turn: +${defBonus} Defense bonus granted!`
     };
   }
 
@@ -4278,7 +4431,7 @@ export class SpywarEngine {
           this.log(player.pid, 'SPELL-ACQ', `Acquired enemy location ${target.name}! (E)`);
         }
       }
-    } else if (spellName === 'Operative Crew') {
+    } else if (spellName.startsWith('Operative Crew')) {
       const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
       const targetOp = (targetCard || player.battlefield.find(c => c.id === targetId)) || friendlyOps[0];
       if (targetOp) {
@@ -4330,6 +4483,8 @@ export class SpywarEngine {
       currentRound: this.currentRound,
       currentPhase: this.currentPhase,
       activePlayerIndex: this.activePlayerIndex,
+      firstPlayerIndex: this.firstPlayerIndex,
+      turnsInCurrentRound: this.turnsInCurrentRound,
       actionCounter: this.actionCounter,
       logs: this.logs,
       gameOver: this.gameOver,
@@ -4352,7 +4507,8 @@ export class SpywarEngine {
           operationsConductedThisTurn: p.telemetry?.operationsConductedThisTurn || 0,
           playedNamedThisTurn: !!p.telemetry?.playedNamedThisTurn,
           uniqueOpTypesThisTurn: new Set(p.telemetry?.uniqueOpTypesThisTurn || []),
-          cardsPlayedThisTurn: p.telemetry?.cardsPlayedThisTurn || 0
+          cardsPlayedThisTurn: p.telemetry?.cardsPlayedThisTurn || 0,
+          emptiedHandThisTurn: !!p.telemetry?.emptiedHandThisTurn
         }
       }));
     }
@@ -4362,6 +4518,8 @@ export class SpywarEngine {
     if (typeof state.currentRound === 'number') this.currentRound = state.currentRound;
     if (state.currentPhase) this.currentPhase = state.currentPhase;
     if (typeof state.activePlayerIndex === 'number') this.activePlayerIndex = state.activePlayerIndex;
+    if (typeof state.firstPlayerIndex === 'number') this.firstPlayerIndex = state.firstPlayerIndex;
+    if (typeof state.turnsInCurrentRound === 'number') this.turnsInCurrentRound = state.turnsInCurrentRound;
     if (typeof state.actionCounter === 'number') this.actionCounter = state.actionCounter;
     if (Array.isArray(state.logs)) this.logs = state.logs;
     if (typeof state.gameOver === 'boolean') this.gameOver = state.gameOver;

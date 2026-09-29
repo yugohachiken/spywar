@@ -59,6 +59,18 @@ export const AFFILIATION_CARDS: Card[] = [
     cap: 5,
     specialAbility: 'buff_tech_token',
     abilityText: 'Tap: Give target friendly operative +1/+1 Tech token.'
+  },
+  {
+    id: 'aff_company',
+    name: 'The Company',
+    type: 'Affiliation',
+    cost: 0,
+    production: 2,
+    cap: 5,
+    specialAbility: 'the_company_intercept',
+    abilityText: 'Intercept: Create a 2/2 Operative token to intercept an attack. Discard Operative token after defending.',
+    isIntercept: true,
+    canPlayOnDefense: true
   }
 ];
 

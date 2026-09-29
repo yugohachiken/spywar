@@ -1,4 +1,4 @@
-import { Action, Player } from '../types/spywar';
+import { Action, Card, Player } from '../types/spywar';
 import { SpywarEngine } from './SpywarEngine';
 
 export class MCTSNode {
@@ -74,7 +74,7 @@ export class ISMCTSAgent {
       while (node.untriedActions && node.untriedActions.length === 0 && node.children.length > 0) {
         node = node.selectChild();
         if (node.action) {
-          simEngine.executeAction(simPlayer, simOpp, node.action);
+          simEngine.executeAction(simPlayer, simOpp, this.bindActionToSim(simEngine, node.action));
         }
       }
 
@@ -82,7 +82,7 @@ export class ISMCTSAgent {
       if (node.untriedActions && node.untriedActions.length > 0) {
         const randIdx = Math.floor(Math.random() * node.untriedActions.length);
         const [act] = node.untriedActions.splice(randIdx, 1);
-        simEngine.executeAction(simPlayer, simOpp, act);
+        simEngine.executeAction(simPlayer, simOpp, this.bindActionToSim(simEngine, act));
 
         const childNode = new MCTSNode(act, node, activePlayer.pid);
         childNode.untriedActions = simEngine.getLegalActions(simPlayer, simOpp);
@@ -99,7 +99,7 @@ export class ISMCTSAgent {
         const nonPassActs = acts.filter(a => a.type !== 'PASS');
         const candidateActs = (nonPassActs.length > 0 && Math.random() < 0.75) ? nonPassActs : acts;
         const randomAct = candidateActs[Math.floor(Math.random() * candidateActs.length)];
-        simEngine.executeAction(simPlayer, simOpp, randomAct);
+        simEngine.executeAction(simPlayer, simOpp, this.bindActionToSim(simEngine, randomAct));
         if (randomAct.type === 'PASS') break;
         depth++;
       }
@@ -139,6 +139,8 @@ export class ISMCTSAgent {
     clone.currentRound = source.currentRound;
     clone.currentPhase = source.currentPhase;
     clone.activePlayerIndex = source.activePlayerIndex;
+    clone.firstPlayerIndex = source.firstPlayerIndex;
+    clone.turnsInCurrentRound = source.turnsInCurrentRound;
     clone.actionCounter = source.actionCounter;
     clone.gameOver = source.gameOver;
     clone.drawDeck = source.drawDeck.map(c => ({ ...c }));
@@ -165,5 +167,36 @@ export class ISMCTSAgent {
     clone.drawDeck = combinedHidden;
 
     return clone;
+  }
+
+  private bindActionToSim(simEngine: SpywarEngine, act: Action): Action {
+    if (!act) return act;
+    const allCards = simEngine.players.flatMap(p => [
+      ...p.hand,
+      ...p.battlefield,
+      p.affiliation
+    ].filter(Boolean) as Card[]);
+
+    const clean: Action = { ...act };
+    if (act.cardId) {
+      clean.card = allCards.find(c => c.id === act.cardId) || (act.card ? { ...act.card } : undefined);
+    } else if (act.card) {
+      clean.card = allCards.find(c => c.name === act.card?.name) || { ...act.card };
+    }
+
+    if (act.targetId) {
+      clean.targetCard = allCards.find(c => c.id === act.targetId) || (act.targetCard ? { ...act.targetCard } : undefined);
+    } else if (act.targetCard) {
+      clean.targetCard = allCards.find(c => c.name === act.targetCard?.name) || { ...act.targetCard };
+    }
+
+    if (act.attackerCards) {
+      clean.attackerCards = act.attackerCards.map(a => allCards.find(c => c.id === a.id) || { ...a });
+    }
+    if (act.defenderCards) {
+      clean.defenderCards = act.defenderCards.map(d => allCards.find(c => c.id === d.id) || { ...d });
+    }
+
+    return clean;
   }
 }

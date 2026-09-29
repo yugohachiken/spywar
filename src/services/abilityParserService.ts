@@ -50,6 +50,7 @@ export interface AtomicEffect {
   tokenName?: string;
   tokenOff?: number;
   tokenDef?: number;
+  discardAfterDefending?: boolean; // Token is discarded immediately after defending an attack
   // For Deploy x card_type and Deploy any x keywords
   deployCardType?: 'Operative' | 'Location' | 'Support' | 'any';
   deployCount?: number;
@@ -477,23 +478,36 @@ export class AbilityParserService {
       }
     }
 
-    // H. Spawn Token Operative
-    const spawnMatch = lower.match(/spawn\s*(a\s*)?([0-9])\/([0-9])\s*([a-z0-9\s]+?)\s*token/i);
-    if (spawnMatch || lower.includes('shadow warrior token') || lower.includes('spawn_token')) {
-      const off = spawnMatch ? parseInt(spawnMatch[2]) : 1;
-      const def = spawnMatch ? parseInt(spawnMatch[3]) : 1;
-      const name = spawnMatch ? spawnMatch[4].trim() : 'Shadow Warrior';
-      recognizedKeywords.push(`Spawn ${off}/${def} ${name} Token`);
+    // H. Spawn / Create Token Operative
+    const spawnMatch = lower.match(/(?:spawn|create|summon|make)\s*(?:a\s*)?([0-9]+)\/([0-9]+)\s*([a-z0-9\s]+?)\s*token/i);
+    const hasShadowWarrior = lower.includes('shadow warrior token');
+    const isSpawnTokenPreset = lower.includes('spawn_token') || lower.includes('the_company_intercept');
+    if (spawnMatch || hasShadowWarrior || isSpawnTokenPreset) {
+      const off = spawnMatch ? parseInt(spawnMatch[1]) : (lower.includes('the_company') ? 2 : 1);
+      const def = spawnMatch ? parseInt(spawnMatch[2]) : (lower.includes('the_company') ? 2 : 1);
+      let name = spawnMatch ? spawnMatch[3].trim() : (lower.includes('the_company') ? 'Operative' : 'Shadow Warrior');
+      name = name.charAt(0).toUpperCase() + name.slice(1);
+
+      const discardAfterDefending = lower.includes('discard operative token after defending')
+        || lower.includes('discard token after defending')
+        || lower.includes('discard after defending')
+        || lower.includes('discard operative token after use')
+        || lower.includes('discard token after use')
+        || lower.includes('discard after use')
+        || lower.includes('the_company');
+
+      recognizedKeywords.push(`Create ${off}/${def} ${name} Token${discardAfterDefending ? ' (Discards after defending)' : ''}`);
       effects.push({
         type: 'spawn_token',
         tokenOff: off,
         tokenDef: def,
-        tokenName: `${name} Token`
+        tokenName: name.toLowerCase().endsWith('token') ? name : `${name} Token`,
+        discardAfterDefending
       });
     }
 
-    // I. Intercept Defense Reaction
-    if (trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept) {
+    // I. Intercept Defense Reaction (only if not already an Operative token spawner)
+    if ((trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept) && !effects.some(e => e.type === 'spawn_token')) {
       const defBonusMatch = lower.match(/\+?([1-9])\s*def\b/i);
       const bonus = defBonusMatch ? parseInt(defBonusMatch[1]) : 2;
       recognizedKeywords.push(`+${bonus} Defense Reaction`);

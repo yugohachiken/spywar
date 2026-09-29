@@ -22,6 +22,7 @@ export default function App() {
     const savedConfig = cardDb.getGameConfig();
     const inst = new SpywarEngine(savedConfig);
     const deckData = cardDb.generateGameDeckForEngine();
+    inst.setGameMode('human_vs_ai');
     inst.setupGame({
       ...deckData,
       deckName: cardDb.getActiveDeck().name

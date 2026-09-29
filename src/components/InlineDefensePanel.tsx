@@ -46,7 +46,7 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   // Eligible out-of-turn defense cards in hand (Support, Intercept, Interrupt, or reactive abilities)
   const reactionCards = defender.hand.filter(c => {
     if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt) return true;
-    if (c.name === 'Operative Crew' || c.specialAbility === 'operative_crew_intercept' || c.specialAbility === 'assemble_strike_defense') return true;
+    if (c.name.startsWith('Operative Crew') || c.specialAbility === 'operative_crew_intercept' || c.specialAbility === 'assemble_strike_defense') return true;
     if (c.abilityText) {
       const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText);
       return parsed.canPlayOnDefense || parsed.isIntercept || parsed.isInterrupt || parsed.trigger === 'intercept' || parsed.trigger === 'interrupt';
@@ -54,24 +54,56 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
     return !isSpecialAbilityAttack && c.type === 'Support';
   });
 
+  // Eligible in-play reaction cards (Affiliation or in-play cards with Intercept/Interrupt abilities)
+  const reactionInPlayCards: Card[] = [];
+  if (defender.affiliation && !defender.affiliation.exhausted) {
+    const aff = defender.affiliation;
+    const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
+    if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+      reactionInPlayCards.push(aff);
+    }
+  }
+  for (const c of defender.battlefield) {
+    if (!c.exhausted) {
+      const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+      if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+        reactionInPlayCards.push(c);
+      }
+    }
+  }
+
   const handlePlayReaction = (card: Card, subChoice?: 'assemble_defense' | 'assemble_strike' | 'buff_defense_team' | 'buff_attack_team') => {
     setReactionFeedback(null);
     const res = engine.playDefensiveReactionCard(defender, card.id, subChoice, selectedDefenderIds);
     if (res.success) {
-      setBonusDef(prev => prev + res.defBonus);
+      if (res.defBonus > 0) {
+        setBonusDef(prev => prev + res.defBonus);
+      }
       setPlayedReactions(prev => [...prev, { name: card.name, bonus: res.defBonus }]);
       setReactionFeedback({ text: res.message });
+      if (res.createdDefenderId) {
+        onToggleDefender(res.createdDefenderId);
+      }
     } else {
       setReactionFeedback({ text: res.message, isError: true });
     }
   };
 
+  // Dynamically include any newly spawned ready operatives on the battlefield (such as The Company's 2/2 token)
+  const currentBattlefieldReadyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
+  const combinedReadyOps = [...readyOps];
+  for (const op of currentBattlefieldReadyOps) {
+    if (!combinedReadyOps.some(o => o.id === op.id)) {
+      combinedReadyOps.push(op);
+    }
+  }
+
   // Rule: An attack using a card's special abilities can ONLY be defended by using a card with an Interrupt or Intercept special ability.
   // It cannot normally be defended using a Defense Team Operative cards.
-  const eligibleReadyOps = readyOps.filter(c => {
+  const eligibleReadyOps = combinedReadyOps.filter(c => {
     if (!isSpecialAbilityAttack) return true;
     const parsed = (c.abilityText || c.specialAbility) ? AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility) : null;
-    return c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt;
+    return c.isIntercept || c.isInterrupt || c.discardAfterDefending || parsed?.isIntercept || parsed?.isInterrupt;
   });
 
   // If target is specified and defending against assassination, calculate target's innate defense
@@ -180,7 +212,7 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
           )}
           <div className="flex flex-wrap gap-2">
             {reactionCards.map(c => {
-              const isOperativeCrew = c.name === 'Operative Crew' || c.specialAbility === 'operative_crew_intercept';
+              const isOperativeCrew = c.name.startsWith('Operative Crew') || c.specialAbility === 'operative_crew_intercept';
               const isAssemble = c.specialAbility === 'assemble_strike_defense';
               const cost = c.cost || 0;
               const spendable = engine.getTotalSpendableCoins(defender);
@@ -261,6 +293,112 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
                     </button>
                   )}
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* In-Play Reactions & Affiliation Intercept */}
+      {reactionInPlayCards.length > 0 && !isOnlinePeerWaiting && (
+        <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-xs font-mono space-y-2">
+          <div className="flex items-center justify-between text-emerald-300">
+            <span className="font-semibold flex items-center gap-1.5">
+              <span>🛡️ In-Play &amp; Affiliation Intercept Reactions</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-200">In Play</span>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {reactionInPlayCards.map(c => {
+              const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility);
+              const cost = parsed.costCoins || 0;
+              const spendable = engine.getTotalSpendableCoins(defender);
+              const hasCoins = spendable >= cost;
+              const isTokenSpawner = parsed.effects.some(e => e.type === 'spawn_token') || /token/i.test(c.abilityText || '');
+              const spawnEff = parsed.effects.find(e => e.type === 'spawn_token');
+              const tokenStats = `${spawnEff?.tokenOff || 2}/${spawnEff?.tokenDef || 2}`;
+
+              return (
+                <div key={c.id} className="flex items-center gap-2 bg-zinc-900 border border-emerald-500/50 rounded-lg p-2 shadow-sm">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-zinc-100 font-bold text-xs">{c.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30">
+                        {c.type === 'Affiliation' ? 'Affiliation Intercept' : 'Intercept'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-400 font-mono">
+                      {isTokenSpawner 
+                        ? `Creates ${tokenStats} Operative token to intercept (Discards after defending)`
+                        : `Defensive Reaction (+${parsed.effects.find(e => e.type === 'intercept_defense')?.amount || 2} DEF)`}
+                      {cost > 0 && ` • Cost: ${cost} Coins`}
+                    </div>
+                  </div>
+                  {!hasCoins ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="px-2.5 py-1 rounded bg-zinc-800 text-amber-400 text-[11px] font-bold border border-amber-900/50 cursor-not-allowed"
+                    >
+                      Need {cost} Coins
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handlePlayReaction(c)}
+                      className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shadow-md transition-all flex items-center gap-1"
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>{isTokenSpawner ? `Intercept (Create ${tokenStats} Operative)` : 'Activate Intercept'}</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Ready Operatives Defensive Selection List */}
+      {eligibleReadyOps.length > 0 && (
+        <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-700/60 text-xs font-mono space-y-2">
+          <div className="flex items-center justify-between text-zinc-300">
+            <span className="font-semibold flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-blue-400" />
+              <span>Assigned Operative Defenders ({selectedOps.length}/{eligibleReadyOps.length})</span>
+            </span>
+            <span className="text-[10px] text-zinc-400">
+              Click to assign or unassign as blocker
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {eligibleReadyOps.map(op => {
+              const isSelected = selectedDefenderIds.includes(op.id);
+              const calc = engine.calculateOperativeDefense(op, threatType);
+              return (
+                <button
+                  key={op.id}
+                  type="button"
+                  onClick={() => onToggleDefender(op.id)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-2 transition-all ${
+                    isSelected
+                      ? 'bg-blue-600/30 border-blue-400 text-blue-200 shadow-sm'
+                      : 'bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border ${isSelected ? 'bg-blue-500 border-blue-400 text-white' : 'border-zinc-600'}`}>
+                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                  </div>
+                  <span>{op.name}</span>
+                  <span className={`text-[10px] px-1 rounded ${isSelected ? 'bg-blue-500/30 text-blue-300' : 'bg-zinc-700 text-zinc-300'}`}>
+                    {calc.totalDef} DEF
+                  </span>
+                  {op.discardAfterDefending && (
+                    <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Discards After Defending
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>

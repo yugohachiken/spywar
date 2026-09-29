@@ -28,6 +28,15 @@ export interface AbilityPreset {
 
 export const BUILT_IN_ABILITY_PRESETS: AbilityPreset[] = [
   {
+    id: 'the_company_intercept',
+    name: 'The Company: Intercept 2/2 Token',
+    category: 'Affiliation',
+    trigger: 'reaction_defense',
+    canPlayOnDefense: true,
+    description: 'Intercept: Create a 2/2 Operative token to intercept an attack. Discard Operative token after defending.',
+    isBuiltIn: true
+  },
+  {
     id: 'assemble_strike_defense',
     name: 'Assemble Strike or Defense Team',
     category: 'Support',

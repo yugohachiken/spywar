@@ -10,6 +10,7 @@ import { InlineDefensePanel } from './InlineDefensePanel';
 import { subscribeToMultiplayerRoom, syncRoomState, deleteMultiplayerRoom } from '../services/multiplayerService';
 import { useCardZoom } from '../context/CardZoomContext';
 import { CardDatabaseService } from '../services/cardDatabaseService';
+import { AbilityParserService } from '../services/abilityParserService';
 
 interface PendingDefenseState {
   attacker: Player;
@@ -67,12 +68,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const opponent = engine.getOpponent();
 
   // In online multiplayer: bottom is always the local user, top is always opponent
+  // In human vs AI: bottom is always Human (Player 1), top is always AI (Player 2)
   const bottomPlayer = isOnline
     ? (myPid === 'P2' ? engine.players[1] : engine.players[0])
+    : gameMode === 'human_vs_ai'
+    ? engine.players[0]
     : activePlayer;
 
   const topPlayer = isOnline
     ? (myPid === 'P2' ? engine.players[0] : engine.players[1])
+    : gameMode === 'human_vs_ai'
+    ? engine.players[1]
     : opponent;
 
   const isMyTurn = isOnline
@@ -81,10 +87,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const myPlayer = isOnline
     ? bottomPlayer
-    : (activePlayer.isAI ? opponent : activePlayer);
+    : (gameMode === 'human_vs_ai' ? engine.players[0] : (activePlayer.isAI ? opponent : activePlayer));
   const otherPlayer = isOnline
     ? topPlayer
-    : (activePlayer.isAI ? activePlayer : opponent);
+    : (gameMode === 'human_vs_ai' ? engine.players[1] : (activePlayer.isAI ? activePlayer : opponent));
 
   const interruptActions = engine.getInterruptActions(myPlayer, otherPlayer);
 
@@ -258,9 +264,57 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     if (action.type === 'OPERATIVE_ACTION') {
       return ['ass', 'sub', 'raid', 'boksoon_ass', 'mata_hari_steal', 'ghost_siphon'].includes(action.opType || '');
     }
-    if (action.type === 'DYNAMIC_ABILITY' && (action.dynamicAbilityEffect?.effect?.type === 'exhaust_card' || action.isSpecialAbilityAttack)) {
+    if (action.type === 'DYNAMIC_ABILITY' && (
+      action.dynamicAbilityEffect?.effect?.type === 'exhaust_card' ||
+      action.dynamicAbilityEffect?.effect?.type === 'discard_field' ||
+      action.dynamicAbilityEffect?.effect?.type === 'discard_hand' ||
+      action.dynamicAbilityEffect?.effect?.type === 'siphon' ||
+      action.isSpecialAbilityAttack
+    )) {
       return true;
     }
+    return false;
+  };
+
+  const canDefenderReactOrDefend = (defender: Player, isSpecialAbilityAttack: boolean): boolean => {
+    // 1. Ready operatives
+    const readyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
+    if (!isSpecialAbilityAttack && readyOps.length > 0) return true;
+    if (isSpecialAbilityAttack && readyOps.some(c => {
+      const parsed = (c.abilityText || c.specialAbility) ? AbilityParserService.getInstance().parseAbility(c.abilityText || c.specialAbility) : null;
+      return c.isIntercept || c.isInterrupt || c.discardAfterDefending || parsed?.isIntercept || parsed?.isInterrupt;
+    })) return true;
+
+    // 2. Affiliation with intercept/reaction that is unexhausted
+    if (defender.affiliation && !defender.affiliation.exhausted) {
+      const aff = defender.affiliation;
+      const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
+      if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+        return true;
+      }
+    }
+
+    // 3. In-play cards with intercept/reaction
+    for (const c of defender.battlefield) {
+      if (!c.exhausted) {
+        const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+        if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+          return true;
+        }
+      }
+    }
+
+    // 4. Cards in hand
+    for (const c of defender.hand) {
+      if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt) return true;
+      if (c.name.startsWith('Operative Crew') || c.specialAbility === 'operative_crew_intercept' || c.specialAbility === 'assemble_strike_defense') return true;
+      if (c.abilityText) {
+        const parsed = AbilityParserService.getInstance().parseAbility(c.abilityText);
+        if (parsed.canPlayOnDefense || parsed.isIntercept || parsed.isInterrupt || parsed.trigger === 'intercept' || parsed.trigger === 'interrupt' || parsed.trigger === 'reaction_defense') return true;
+      }
+      if (!isSpecialAbilityAttack && c.type === 'Support') return true;
+    }
+
     return false;
   };
 
@@ -276,6 +330,36 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         threatType: 'ass' as const,
         threatName: `Exhaust Special Ability on ${targetName}`,
         attackPower: 1,
+        attackerNames: action.card?.name || 'Special Ability',
+        isSpecialAbilityAttack: true
+      };
+    }
+
+    if (action.type === 'DYNAMIC_ABILITY' && action.dynamicAbilityEffect?.effect?.type === 'discard_field') {
+      return {
+        threatType: 'ass' as const,
+        threatName: `Discard Field Special Ability`,
+        attackPower: action.dynamicAbilityEffect.effect.amount || 1,
+        attackerNames: action.card?.name || 'Special Ability',
+        isSpecialAbilityAttack: true
+      };
+    }
+
+    if (action.type === 'DYNAMIC_ABILITY' && action.dynamicAbilityEffect?.effect?.type === 'discard_hand') {
+      return {
+        threatType: 'sub' as const,
+        threatName: `Discard Hand Special Ability`,
+        attackPower: action.dynamicAbilityEffect.effect.amount || 1,
+        attackerNames: action.card?.name || 'Special Ability',
+        isSpecialAbilityAttack: true
+      };
+    }
+
+    if (action.type === 'DYNAMIC_ABILITY' && action.dynamicAbilityEffect?.effect?.type === 'siphon') {
+      return {
+        threatType: 'raid' as const,
+        threatName: `Siphon Resource Special Ability`,
+        attackPower: action.dynamicAbilityEffect.effect.amount || 2,
         attackerNames: action.card?.name || 'Special Ability',
         isSpecialAbilityAttack: true
       };
@@ -382,12 +466,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       try {
         const bestAction = mctsAgent.getBestAction(engine, currentActive, currentOpp);
         
-        // If AI is attacking a human player who has Ready operatives, trigger defense assignment prompt!
+        // If AI is attacking a human player who can react or defend, trigger defense assignment prompt!
         if (isAttackAction(bestAction) && !currentOpp.isAI) {
-          const readyOps = currentOpp.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-          if (readyOps.length > 0) {
+          const attackInfo = getIncomingAttackInfo(bestAction);
+          if (canDefenderReactOrDefend(currentOpp, attackInfo.isSpecialAbilityAttack)) {
             setAutoAi(false);
-            const attackInfo = getIncomingAttackInfo(bestAction);
+            const readyOps = currentOpp.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
             const recommended = engine.selectAiDefenders(currentOpp, attackInfo.threatType, attackInfo.attackPower);
             setPendingDefense({
               attacker: currentActive,
@@ -530,9 +614,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       if (!isMyTurn || !multiplayerRoom) return;
 
       if (isAttackAction(action)) {
-        const readyOps = opponent.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-        if (readyOps.length > 0) {
-          const attackInfo = getIncomingAttackInfo(action);
+        const attackInfo = getIncomingAttackInfo(action);
+        if (canDefenderReactOrDefend(opponent, attackInfo.isSpecialAbilityAttack)) {
+          const readyOps = opponent.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
           const defenseData: RoomDefenseData = {
             attackerPid: activePlayer.pid,
             defenderPid: opponent.pid,
@@ -567,11 +651,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return;
     }
 
-    // If attacking human opponent (e.g. Pass & Play mode) who has Ready operatives, allow defense assignment
+    // If attacking human opponent (e.g. Pass & Play mode) who can react or defend, allow defense assignment
     if (isAttackAction(action) && !opponent.isAI) {
-      const readyOps = opponent.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-      if (readyOps.length > 0) {
-        const attackInfo = getIncomingAttackInfo(action);
+      const attackInfo = getIncomingAttackInfo(action);
+      if (canDefenderReactOrDefend(opponent, attackInfo.isSpecialAbilityAttack)) {
+        const readyOps = opponent.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
         const recommended = engine.selectAiDefenders(opponent, attackInfo.threatType, attackInfo.attackPower);
         setPendingDefense({
           attacker: activePlayer,
@@ -634,11 +718,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
     const cardDb = CardDatabaseService.getInstance();
     const deckData = cardDb.generateGameDeckForEngine();
+    engine.setGameMode(gameMode);
     engine.setupGame({
       ...deckData,
       deckName: cardDb.getActiveDeck().name,
     });
-    engine.setGameMode(gameMode);
     setSelectedCard(null);
     onRefresh();
   };
@@ -1685,8 +1769,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             const nextIds = pendingDefense.selectedDefenderIds.includes(cardId)
               ? pendingDefense.selectedDefenderIds.filter(id => id !== cardId)
               : [...pendingDefense.selectedDefenderIds, cardId];
+            const updatedReadyOps = pendingDefense.defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
             setPendingDefense({
               ...pendingDefense,
+              readyOps: updatedReadyOps,
               selectedDefenderIds: nextIds
             });
           }}
@@ -1859,11 +1945,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             <p className="text-zinc-200 font-semibold">Match Waiting Room</p>
             <p className="text-zinc-500 text-[11px]">Send the room code to your friend to begin your online espionage battle.</p>
           </div>
-        ) : isOnline && !isMyTurn ? (
+        ) : !isMyTurn ? (
           <div className="py-6 text-center text-xs font-mono text-zinc-400 flex flex-col items-center justify-center gap-2 bg-zinc-950/60 rounded-lg border border-zinc-800">
             <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              <span className="text-zinc-200 font-semibold">Opponent Turn in Progress</span>
+              <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping" />
+              <span className="text-zinc-200 font-semibold">{topPlayer.name} Turn in Progress</span>
             </div>
             <p className="text-zinc-500 text-[11px]">Awaiting {topPlayer.name}'s operational command...</p>
           </div>

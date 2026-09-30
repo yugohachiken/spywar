@@ -164,20 +164,22 @@ export const CardView: React.FC<CardViewProps> = ({
       {/* Operative Combat Stats / Location Capacity */}
       {card.type === 'Operative' && (() => {
         const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+        const totalOffBonus = (card.tempOffenseBuff || 0) + (card.operationOffenseBuff || 0) + tokenBuff;
+        const totalDefBonus = (card.tempDefenseBuff || 0) + (card.operationDefenseBuff || 0) + tokenBuff;
         return (
           <div className="grid grid-cols-2 gap-1 py-1 px-1.5 rounded bg-black/40 border border-zinc-800/80 my-0.5 font-mono text-[11px]">
             <div className="flex items-center gap-1 text-red-300">
               <Sword className="w-3 h-3 text-red-400" />
-              <span>{(card.off || 0) + (card.tempOffenseBuff || 0) + tokenBuff}</span>
-              {(card.tempOffenseBuff || 0) + tokenBuff > 0 ? (
-                <span className="text-emerald-400 text-[9px]">+{(card.tempOffenseBuff || 0) + tokenBuff}</span>
+              <span>{(card.off || 0) + totalOffBonus}</span>
+              {totalOffBonus > 0 ? (
+                <span className="text-emerald-400 text-[9px]">+{totalOffBonus}</span>
               ) : null}
             </div>
             <div className="flex items-center gap-1 text-blue-300 justify-end">
               <Shield className="w-3 h-3 text-blue-400" />
-              <span>{(card.def || 0) + (card.tempDefenseBuff || 0) + tokenBuff}</span>
-              {(card.tempDefenseBuff || 0) + tokenBuff > 0 ? (
-                <span className="text-emerald-400 text-[9px]">+{(card.tempDefenseBuff || 0) + tokenBuff}</span>
+              <span>{(card.def || 0) + totalDefBonus}</span>
+              {totalDefBonus > 0 ? (
+                <span className="text-emerald-400 text-[9px]">+{totalDefBonus}</span>
               ) : null}
             </div>
           </div>
@@ -187,6 +189,31 @@ export const CardView: React.FC<CardViewProps> = ({
       {/* Skills Badges & Tokens */}
       {card.type === 'Operative' && (
         <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-zinc-300 my-0.5">
+          {(card.operationOffenseBuff || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-600/50" title="Benefit for one operation">
+              ⚔️ 1-Op: +{card.operationOffenseBuff} OFF
+            </span>
+          )}
+          {(card.operationDefenseBuff || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-600/50" title="Benefit for one operation">
+              🛡️ 1-Op: +{card.operationDefenseBuff} DEF
+            </span>
+          )}
+          {(card.defendingDefenseBuff || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-blue-950/80 text-blue-300 border border-blue-600/50" title="Benefit when defending against an enemy operation">
+              🛡️ +{card.defendingDefenseBuff} DEF (Defending)
+            </span>
+          )}
+          {(card.tempOffenseBuff || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-red-950/60 text-red-300 border border-red-800/40 text-[8px]" title="Temporary: Until end of turn">
+              ⏳ +{card.tempOffenseBuff} OFF
+            </span>
+          )}
+          {(card.tempDefenseBuff || 0) > 0 && (
+            <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-blue-950/60 text-blue-300 border border-blue-800/40 text-[8px]" title="Temporary: Until end of turn">
+              ⏳ +{card.tempDefenseBuff} DEF
+            </span>
+          )}
           {(card.techTokens || 0) > 0 && (
             <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
               ⚡ Tech: +{card.techTokens}/+{card.techTokens}

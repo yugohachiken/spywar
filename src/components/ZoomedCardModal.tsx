@@ -278,6 +278,8 @@ export const ZoomedCardModal: React.FC = () => {
             {/* Operative Combat Stats (Big 32px Font) */}
             {card?.type === 'Operative' && (() => {
               const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+              const totalOffBonus = (card.tempOffenseBuff || 0) + (card.operationOffenseBuff || 0) + tokenBuff;
+              const totalDefBonus = (card.tempDefenseBuff || 0) + (card.operationDefenseBuff || 0) + tokenBuff;
               return (
                 <div className="my-4 grid grid-cols-2 gap-3 p-3.5 sm:p-4 rounded-xl bg-black/60 border border-zinc-800 font-mono">
                   <div className="flex items-center gap-3">
@@ -287,9 +289,9 @@ export const ZoomedCardModal: React.FC = () => {
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-red-300 font-semibold">Offense</div>
                       <div className="text-2xl sm:text-3xl font-extrabold text-red-200">
-                        {(card.off || 0) + (card.tempOffenseBuff || 0) + tokenBuff}
-                        {(card.tempOffenseBuff || 0) + tokenBuff > 0 ? (
-                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempOffenseBuff || 0) + tokenBuff}</span>
+                        {(card.off || 0) + totalOffBonus}
+                        {totalOffBonus > 0 ? (
+                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{totalOffBonus}</span>
                         ) : null}
                       </div>
                     </div>
@@ -299,9 +301,9 @@ export const ZoomedCardModal: React.FC = () => {
                     <div className="text-right">
                       <div className="text-[11px] uppercase tracking-wider text-blue-300 font-semibold">Defense</div>
                       <div className="text-2xl sm:text-3xl font-extrabold text-blue-200">
-                        {(card.def || 0) + (card.tempDefenseBuff || 0) + tokenBuff}
-                        {(card.tempDefenseBuff || 0) + tokenBuff > 0 ? (
-                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{(card.tempDefenseBuff || 0) + tokenBuff}</span>
+                        {(card.def || 0) + totalDefBonus}
+                        {totalDefBonus > 0 ? (
+                          <span className="text-emerald-400 text-sm ml-1 font-bold">+{totalDefBonus}</span>
                         ) : null}
                       </div>
                     </div>
@@ -316,6 +318,36 @@ export const ZoomedCardModal: React.FC = () => {
             {/* Espionage Specialized Skills Badges & Tokens */}
             {card?.type === 'Operative' && (
               <div className="flex flex-wrap items-center gap-2 mb-4">
+                {(card.operationOffenseBuff || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 border-2 border-amber-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Sword className="w-4 h-4 text-amber-400" />
+                    <span>For One Operation: +{card.operationOffenseBuff} OFF</span>
+                  </div>
+                )}
+                {(card.operationDefenseBuff || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950 text-cyan-300 border-2 border-cyan-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Shield className="w-4 h-4 text-cyan-400" />
+                    <span>For One Operation: +{card.operationDefenseBuff} DEF</span>
+                  </div>
+                )}
+                {(card.defendingDefenseBuff || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-950 text-blue-300 border-2 border-blue-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Shield className="w-4 h-4 text-blue-400" />
+                    <span>When Defending: +{card.defendingDefenseBuff} DEF</span>
+                  </div>
+                )}
+                {(card.tempOffenseBuff || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950 text-red-300 border-2 border-red-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Sword className="w-4 h-4 text-red-400" />
+                    <span>Temporary (+{card.tempOffenseBuff} OFF until end of turn)</span>
+                  </div>
+                )}
+                {(card.tempDefenseBuff || 0) > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-950 text-blue-300 border-2 border-blue-600/60 font-mono font-bold text-xs sm:text-sm">
+                    <Shield className="w-4 h-4 text-blue-400" />
+                    <span>Temporary (+{card.tempDefenseBuff} DEF until end of turn)</span>
+                  </div>
+                )}
                 {(card.techTokens || 0) > 0 && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950 text-cyan-300 border-2 border-cyan-600/60 font-mono font-bold text-xs sm:text-sm">
                     <Sparkles className="w-4 h-4 text-cyan-400" />

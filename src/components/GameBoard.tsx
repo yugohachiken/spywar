@@ -372,7 +372,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType,
         threatName: threatType === 'ass' ? 'Assassination Sacrifice' : 'Subterfuge Sacrifice',
-        attackPower: (op.off || 4) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + skill,
+        attackPower: (op.off || 4) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + skill,
         attackerNames: op.name,
         isSpecialAbilityAttack
       };
@@ -383,7 +383,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'ass' as const,
         threatName: 'Boksoon Targeted Execution',
-        attackPower: (op.off || 4) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.ass || 3),
+        attackPower: (op.off || 4) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.ass || 3),
         attackerNames: op.name,
         isSpecialAbilityAttack
       };
@@ -394,7 +394,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'sub' as const,
         threatName: 'Mata Hari Hand Infiltration',
-        attackPower: (op.off || 3) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.sub || 3),
+        attackPower: (op.off || 3) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.sub || 3),
         attackerNames: op.name,
         isSpecialAbilityAttack
       };
@@ -405,7 +405,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return {
         threatType: 'raid' as const,
         threatName: 'Ghost Resource Siphon',
-        attackPower: (op.off || 3) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.raid || 3),
+        attackPower: (op.off || 3) + engine.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.raid || 3),
         attackerNames: op.name,
         isSpecialAbilityAttack
       };
@@ -414,7 +414,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     if (action.opType === 'ass') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
       }
       return {
         threatType: 'ass' as const,
@@ -428,7 +428,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     if (action.opType === 'raid') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
       }
       return {
         threatType: 'raid' as const,
@@ -442,7 +442,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     if (action.opType === 'sub') {
       let atk = 0;
       for (const a of attackers) {
-        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+        atk += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
       }
       return {
         threatType: 'sub' as const,
@@ -530,7 +530,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       if (!selectedCombatTarget) return;
       let totalOff = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
       }
       action = {
         type: 'OPERATIVE_ACTION',
@@ -549,7 +549,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       let totalOff = 0;
       let totalRaidSkill = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
         totalRaidSkill += (a.raid || 0);
       }
       const target = selectedCombatTarget;
@@ -572,7 +572,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       let totalOff = 0;
       let totalSubSkill = 0;
       for (const a of attackerCards) {
-        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+        totalOff += (a.off || 1) + engine.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
         totalSubSkill += (a.sub || 0);
       }
       const potentialDiscards = attackerCards.length + totalSubSkill;

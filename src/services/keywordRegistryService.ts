@@ -351,6 +351,59 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     parameterType: 'number',
     defaultParamValue: 1,
     sampleUsage: 'Passive: Operative cost 1 less resource to deploy.'
+  },
+
+  // 4. Modifiers, Durations & Conditions
+  {
+    id: 'kw_temporary',
+    keyword: 'Temporary',
+    category: 'modifier',
+    syntaxTemplate: 'Temporary: Selected Operative gains +{x} OFF until end of turn.',
+    description: "Benefits marked as temporary last only as long as specified in the special ability description. Example, Selected Operative gain +1 OFF until end of turn. This means an Operative with 2 OFF becomes 3 OFF, but reverts back to 2 OFF after the player's turn.",
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Temporary: Selected Operative gains +1 OFF until end of turn.'
+  },
+  {
+    id: 'kw_until_end_of_turn',
+    keyword: 'Until end of turn',
+    category: 'modifier',
+    syntaxTemplate: 'until end of turn',
+    description: "Specifies how long the bonus will last. Example, Selected Operative gain +1 OFF until end of turn. Operative with 2 OFF becomes 3 OFF, but reverts back to 2 OFF after the player's turn.",
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Selected Operative gains +1 OFF until end of turn.'
+  },
+  {
+    id: 'kw_for_one_operation',
+    keyword: 'For one operation',
+    category: 'modifier',
+    syntaxTemplate: 'for one operation',
+    description: 'Benefit can be used, or lasts until it is used in any of the three operations (Subterfuge, Assassination, or Raid). Once used in an operation, the benefit expires.',
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Selected Operative gains +1 OFF for one operation.'
+  },
+  {
+    id: 'kw_when_defending',
+    keyword: 'when defending',
+    category: 'modifier',
+    syntaxTemplate: 'when defending',
+    description: 'Benefit can only be used when defending against an enemy operation.',
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Selected Operative gains +2 DEF when defending.'
+  },
+  {
+    id: 'kw_for_1_turn',
+    keyword: 'For 1 turn',
+    category: 'modifier',
+    syntaxTemplate: 'for 1 turn',
+    description: 'Similar to end of turn. Specifies how long the bonus will last; reverts back after 1 turn.',
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Target operative gains +1 DEF for 1 turn.'
   }
 ];
 

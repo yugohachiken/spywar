@@ -22,6 +22,9 @@ export interface Card {
   // Modifiers
   tempOffenseBuff?: number;
   tempDefenseBuff?: number;
+  operationOffenseBuff?: number; // Lasts until used in 1 operation
+  operationDefenseBuff?: number; // Lasts until used in 1 operation
+  defendingDefenseBuff?: number; // Benefit only applies when defending against an enemy operation
   techTokens?: number; // +x/+x Tech token bonus (buffs both OFF and DEF)
   weaponTokens?: number; // +x/+x Weapon token bonus (buffs both OFF and DEF)
   suitTokens?: number; // +x/+x Suit token bonus (buffs both OFF and DEF)

@@ -40,7 +40,7 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
     (c.techTokens || 0) + (c.weaponTokens || 0) + (c.suitTokens || 0) + (c.poweredArmorTokens || 0) + (c.powerSuitTokens || 0);
 
   // Calculate Base Offense and Skills for the operative team (including Tech, Weapon, Suit, Armor tokens & buffs)
-  const baseOffense = selectedAttackers.reduce((acc, c) => acc + (c.off || 1) + (c.tempOffenseBuff || 0) + getCardTokenBuff(c), 0);
+  const baseOffense = selectedAttackers.reduce((acc, c) => acc + (c.off || 1) + (c.tempOffenseBuff || 0) + (c.operationOffenseBuff || 0) + getCardTokenBuff(c), 0);
   const totalAssSkill = selectedAttackers.reduce((acc, c) => acc + (c.ass || 0), 0);
   const totalRaidSkill = selectedAttackers.reduce((acc, c) => acc + (c.raid || 0), 0);
   const totalSubSkill = selectedAttackers.reduce((acc, c) => acc + (c.sub || 0), 0);

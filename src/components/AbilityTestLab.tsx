@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SpywarEngine } from '../engine/SpywarEngine';
 import { CardView } from './CardView';
 import { Card } from '../types/spywar';
-import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle, Coins, Sparkles, Target } from 'lucide-react';
+import { ShieldCheck, Skull, Zap, Swords, Building2, Flame, Award, CheckCircle2, XCircle, Coins, Sparkles, Target, Clock, Crosshair, Shield } from 'lucide-react';
 
 interface AbilityTestLabProps {
   engine: SpywarEngine;
@@ -989,7 +989,7 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
               Action Studio Keywords Diagnostic Test Bench
             </h3>
             <p className="text-xs text-zinc-400">
-              Interactive test suites verifying "Deploy x card_type", "Deploy any x", "Exhaust", "Intercept", "Interrupt", and "Discard at end of turn".
+              Interactive test suites verifying "Temporary", "Until end of turn", "For one operation", "when defending", "For 1 turn", "Deploy x card_type", "Deploy any x", "Exhaust", "Intercept", "Interrupt", and "Discard at end of turn".
             </p>
           </div>
 
@@ -1919,6 +1919,386 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 >
                   <span>Test "M.I.C.A. Tap &rarr; Target Operative Alpha (+1/+1 Tech)"</span>
                   <span className="text-[10px] font-mono opacity-80">+1/+1 Tech</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 11: Temporary (Reverts after player's turn) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-amber-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">11. Temporary</h4>
+                    <span className="text-[10px] text-amber-400 font-mono">Reverts after specified duration</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-mono font-bold">
+                  Rule Example
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Benefits marked as temporary last only as long as specified in the special ability description. Example: <span className="text-amber-300 font-semibold">"Selected Operative gain +1 OFF until end of turn."</span> Operative with 2 OFF becomes 3 OFF, but reverts back to 2 OFF after the player's turn.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    // 1. Spawn an Operative with 2 OFF and 2 DEF
+                    const testOp: Card = {
+                      id: `temp_spec_op_${Date.now()}`,
+                      name: 'Field Infiltrator',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      tempOffenseBuff: 0,
+                      tempDefenseBuff: 0
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('temp_spec_op_') && !c.id.startsWith('temp_buffer_'));
+                    p1.battlefield.push(testOp);
+
+                    const buffer: Card = {
+                      id: `temp_buffer_${Date.now()}`,
+                      name: 'Tactical Uplink',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Temporary: Selected Operative gain +1 OFF until end of turn.'
+                    };
+                    p1.battlefield.push(buffer);
+
+                    addTestLog(`📋 [Setup]: Created "${testOp.name}" with base OFF: ${testOp.off}.`);
+
+                    // 2. Execute buff ability
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: buffer,
+                      targetCard: testOp,
+                      targetId: testOp.id,
+                      targetName: testOp.name,
+                      dynamicAbilityEffect: {
+                        abilityText: buffer.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'off', amount: 1, duration: 'until_end_of_turn', isTemporary: true }
+                      }
+                    });
+
+                    const boostedOff = (testOp.off || 0) + (testOp.tempOffenseBuff || 0);
+                    addTestLog(`⚡ [Ability Executed]: ${res.message} -> Current Total OFF: ${boostedOff} (Expected: 3).`);
+
+                    // 3. End player's turn to verify reversion
+                    engine.passTurn();
+                    const revertedOff = (testOp.off || 0) + (testOp.tempOffenseBuff || 0);
+                    addTestLog(`⏳ [After Player's Turn]: Turn ended. Temp OFF buff: ${testOp.tempOffenseBuff || 0} -> Current Total OFF: ${revertedOff} (Reverted back to 2!).`);
+                    addTestLog(`✅ [Temporary Keyword Verification]: ${boostedOff === 3 && revertedOff === 2 ? 'PASSED (2 -> 3 -> 2)' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-zinc-950 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Temporary: Gain +1 OFF until end of turn"</span>
+                  <span className="text-[10px] font-mono opacity-80">2 OFF &rarr; 3 OFF &rarr; 2 OFF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 12: Until end of turn */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-yellow-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">12. Until end of turn</h4>
+                    <span className="text-[10px] text-yellow-400 font-mono">Turn-bound duration</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-yellow-950 text-yellow-300 border border-yellow-600/50 font-mono font-bold">
+                  Duration
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Specifies how long the bonus will last. Bonus applies during the active turn and reverts at the end of the player's turn.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const testOp: Card = {
+                      id: `turn_test_op_${Date.now()}`,
+                      name: 'Covert Saboteur',
+                      type: 'Operative',
+                      cost: 1,
+                      off: 1,
+                      def: 1
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('turn_test_op_'));
+                    p1.battlefield.push(testOp);
+
+                    const buffer: Card = {
+                      id: `stim_${Date.now()}`,
+                      name: 'Combat Adrenaline',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Give target friendly operative +2 OFF until end of turn.'
+                    };
+                    p1.battlefield.push(buffer);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: buffer,
+                      targetCard: testOp,
+                      targetId: testOp.id,
+                      targetName: testOp.name,
+                      dynamicAbilityEffect: {
+                        abilityText: buffer.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'off', amount: 2, duration: 'until_end_of_turn' }
+                      }
+                    });
+
+                    addTestLog(`⏱️ [Until end of turn]: ${res.message}. OFF: ${(testOp.off || 1) + (testOp.tempOffenseBuff || 0)}.`);
+                    engine.passTurn();
+                    addTestLog(`🔄 [Turn Cleared]: Turn ended. OFF: ${(testOp.off || 1) + (testOp.tempOffenseBuff || 0)} (Reverted back to base 1).`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-zinc-950 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Until end of turn (+2 OFF)"</span>
+                  <span className="text-[10px] font-mono opacity-80">Duration</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 13: For one operation */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-cyan-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40">
+                    <Crosshair className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">13. For one operation</h4>
+                    <span className="text-[10px] text-cyan-400 font-mono">Lasts until used in 1 operation</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-600/50 font-mono font-bold">
+                  Operation-bound
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Benefit can be used, or lasts until it is used in any of the three operations (Subterfuge, Assassination, or Raid). Once the operation finishes, the benefit expires.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const striker: Card = {
+                      id: `op_striker_${Date.now()}`,
+                      name: 'Ghost Sniper',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 1,
+                      ass: 2,
+                      exhausted: false
+                    };
+                    const enemyTarget: Card = {
+                      id: `enemy_target_${Date.now()}`,
+                      name: 'Enemy Sentry',
+                      type: 'Operative',
+                      cost: 1,
+                      off: 1,
+                      def: 3,
+                      ass: 0,
+                      exhausted: false
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('op_striker_'));
+                    p2.battlefield = p2.battlefield.filter(c => !c.id.startsWith('enemy_target_'));
+                    p1.battlefield.push(striker);
+                    p2.battlefield.push(enemyTarget);
+
+                    const supportCard: Card = {
+                      id: `sniper_boost_${Date.now()}`,
+                      name: 'Spotter Recon',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Selected Operative gain +3 OFF for one operation.'
+                    };
+                    p1.battlefield.push(supportCard);
+
+                    // 1. Apply "+3 OFF for one operation"
+                    const resBuff = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: supportCard,
+                      targetCard: striker,
+                      targetId: striker.id,
+                      targetName: striker.name,
+                      dynamicAbilityEffect: {
+                        abilityText: supportCard.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'off', amount: 3, duration: 'for_one_operation' }
+                      }
+                    });
+                    addTestLog(`🎯 [Applied Buff]: ${resBuff.message} (Operation OFF Buff: +${striker.operationOffenseBuff})`);
+
+                    // 2. Perform Assassination operation using the bonus
+                    const resOp = engine.executeAction(p1, p2, {
+                      type: 'OPERATIVE_ACTION',
+                      card: striker,
+                      cardId: striker.id,
+                      cardName: striker.name,
+                      attackerCards: [striker],
+                      targetCard: enemyTarget,
+                      targetId: enemyTarget.id,
+                      targetName: enemyTarget.name,
+                      opType: 'ass'
+                    });
+                    addTestLog(`⚔️ [Operation Conducted]: ${resOp.message}`);
+                    addTestLog(`🔍 [Buff Expiration Check]: striker.operationOffenseBuff = ${striker.operationOffenseBuff || 0} (Expected: 0, expired after being used in operation!).`);
+                    addTestLog(`✅ [For one operation Keyword]: ${striker.operationOffenseBuff === 0 ? 'PASSED (Used & Expired)' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "For one operation (+3 OFF)"</span>
+                  <span className="text-[10px] font-mono opacity-80">Single Operation</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 14: when defending */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-blue-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/40">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">14. when defending</h4>
+                    <span className="text-[10px] text-blue-400 font-mono">Defense conditional</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-600/50 font-mono font-bold">
+                  Conditional
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Benefit can only be used when defending against an enemy operation. Operative has normal DEF while idle, but receives bonus DEF during defensive resolution against threats.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const defenderOp: Card = {
+                      id: `def_guard_${Date.now()}`,
+                      name: 'Cyber Guardian',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 1,
+                      def: 2,
+                      ass: 1,
+                      defendingDefenseBuff: 0
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('def_guard_'));
+                    p1.battlefield.push(defenderOp);
+
+                    const fortifyCard: Card = {
+                      id: `fort_${Date.now()}`,
+                      name: 'Bunker Protocol',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Selected Operative gains +2 DEF when defending.'
+                    };
+                    p1.battlefield.push(fortifyCard);
+
+                    // 1. Grant "+2 DEF when defending"
+                    const resBuff = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: fortifyCard,
+                      targetCard: defenderOp,
+                      targetId: defenderOp.id,
+                      targetName: defenderOp.name,
+                      dynamicAbilityEffect: {
+                        abilityText: fortifyCard.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'def', amount: 2, condition: 'when_defending' }
+                      }
+                    });
+                    addTestLog(`🛡️ [Granted Defending Buff]: ${resBuff.message}`);
+
+                    // 2. Verify normal defense vs defending defense
+                    const normalDef = defenderOp.def || 2;
+                    const defenseDuringAssassination = engine.calculateOperativeDefense(defenderOp, 'ass').totalDef;
+                    addTestLog(`📊 [Stat Check]: Base DEF: ${normalDef} | Total DEF when defending against Assassination: ${defenseDuringAssassination} (+2 DEF applied!).`);
+                    addTestLog(`✅ [when defending Keyword]: ${defenseDuringAssassination === normalDef + 2 + (defenderOp.ass || 0) ? 'PASSED' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "when defending (+2 DEF)"</span>
+                  <span className="text-[10px] font-mono opacity-80">Defense Only</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 15: For 1 turn */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-purple-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/40">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">15. For 1 turn</h4>
+                    <span className="text-[10px] text-purple-400 font-mono">1 Turn Duration</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-600/50 font-mono font-bold">
+                  Duration
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Similar to end of turn. Benefit lasts for 1 turn, then reverts back during the turn cleanup phase.
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    const testOp: Card = {
+                      id: `one_turn_op_${Date.now()}`,
+                      name: 'Aegis Scout',
+                      type: 'Operative',
+                      cost: 1,
+                      off: 2,
+                      def: 2
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('one_turn_op_'));
+                    p1.battlefield.push(testOp);
+
+                    const buffCard: Card = {
+                      id: `aegis_buff_${Date.now()}`,
+                      name: 'Hardlight Shield',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Selected Operative gains +1 DEF for 1 turn.'
+                    };
+                    p1.battlefield.push(buffCard);
+
+                    // 1. Grant +1 DEF for 1 turn
+                    const resBuff = engine.executeAction(p1, p2, {
+                      type: 'DYNAMIC_ABILITY',
+                      card: buffCard,
+                      targetCard: testOp,
+                      targetId: testOp.id,
+                      targetName: testOp.name,
+                      dynamicAbilityEffect: {
+                        abilityText: buffCard.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'def', amount: 1, duration: 'for_1_turn' }
+                      }
+                    });
+                    const activeDef = (testOp.def || 2) + (testOp.tempDefenseBuff || 0);
+                    addTestLog(`🛡️ [For 1 turn Buff Applied]: ${resBuff.message} -> DEF: ${activeDef} (Expected: 3).`);
+
+                    // 2. End turn to verify 1 turn expiration
+                    engine.passTurn();
+                    const afterTurnDef = (testOp.def || 2) + (testOp.tempDefenseBuff || 0);
+                    addTestLog(`⏳ [Turn Completed]: DEF: ${afterTurnDef} (Reverted to 2 after 1 turn!).`);
+                    addTestLog(`✅ [For 1 turn Keyword]: ${activeDef === 3 && afterTurnDef === 2 ? 'PASSED' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "For 1 turn (+1 DEF)"</span>
+                  <span className="text-[10px] font-mono opacity-80">1 Turn Duration</span>
                 </button>
               </div>
             </div>

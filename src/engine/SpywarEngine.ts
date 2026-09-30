@@ -231,10 +231,11 @@ export class SpywarEngine {
       cardsPlayedThisTurn: 0,
       emptiedHandThisTurn: false
     };
-    // Reset temp buffs
+    // Reset temp buffs (Temporary, Until end of turn, For 1 turn, when defending)
     for (const card of player.battlefield) {
       card.tempOffenseBuff = 0;
       card.tempDefenseBuff = 0;
+      card.defendingDefenseBuff = 0;
     }
   }
 
@@ -703,6 +704,7 @@ export class SpywarEngine {
       for (const card of p.battlefield) {
         card.tempOffenseBuff = 0;
         card.tempDefenseBuff = 0;
+        card.defendingDefenseBuff = 0;
       }
     }
 
@@ -1378,7 +1380,7 @@ export class SpywarEngine {
 
           // (1) Assassination Operations
           for (const target of enemyOps) {
-            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1394,7 +1396,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1413,7 +1415,7 @@ export class SpywarEngine {
 
           // (2) Raid Operations
           for (const target of raidTargets) {
-            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1429,7 +1431,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -1448,7 +1450,7 @@ export class SpywarEngine {
 
           // (3) Subterfuge Operations
           if (opponent.hand.length > 0) {
-            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+            const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
             actions.push({
               type: 'OPERATIVE_ACTION',
               cardId: op.id,
@@ -1461,7 +1463,7 @@ export class SpywarEngine {
             if (otherReadyOps.length > 0) {
               let teamOff = 0;
               for (const rop of readyOps) {
-                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+                teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
               }
               actions.push({
                 type: 'OPERATIVE_ACTION',
@@ -2079,7 +2081,7 @@ export class SpywarEngine {
 
       // 4e. Assassinate (Solo & Team)
       for (const target of enemyOps) {
-        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.ass || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -2095,7 +2097,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.ass || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -2114,7 +2116,7 @@ export class SpywarEngine {
 
       // 4f. Raid (Solo & Team)
       for (const target of raidTargets) {
-        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.raid || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -2130,7 +2132,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.raid || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -2149,7 +2151,7 @@ export class SpywarEngine {
 
       // 4g. Subterfuge (Solo & Team)
       if (opponent.hand.length > 0) {
-        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0);
+        const soloOff = (op.off || 1) + this.getCardStatTokensBuff(op) + (op.sub || 0) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0);
         actions.push({
           type: 'OPERATIVE_ACTION',
           cardId: op.id,
@@ -2162,7 +2164,7 @@ export class SpywarEngine {
         if (otherReadyOps.length > 0) {
           let teamOff = 0;
           for (const rop of readyOps) {
-            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0);
+            teamOff += (rop.off || 1) + this.getCardStatTokensBuff(rop) + (rop.sub || 0) + (rop.tempOffenseBuff || 0) + (rop.operationOffenseBuff || 0);
           }
           actions.push({
             type: 'OPERATIVE_ACTION',
@@ -3158,19 +3160,36 @@ export class SpywarEngine {
       if (effect.type === 'buff_stat') {
         const target = action.targetCard || player.battlefield.find(c => c.id === action.targetId) || card;
         const amt = effect.amount || 1;
-        if (effect.stat === 'both') {
-          target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
-          target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
-          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt}/+${amt} Offense and Defense to ${target.name}.`);
-          return { success: true, message: `Granted +${amt}/+${amt} Offense and Defense to ${target.name}.` };
-        } else if (effect.stat === 'off') {
-          target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
-          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Offense to ${target.name}.`);
-          return { success: true, message: `Granted +${amt} Offense to ${target.name}.` };
+
+        if (effect.condition === 'when_defending') {
+          target.defendingDefenseBuff = (target.defendingDefenseBuff || 0) + amt;
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} DEF to ${target.name} when defending against an enemy operation (Keyword: when defending).`);
+          return { success: true, message: `Granted +${amt} DEF to ${target.name} when defending.` };
+        } else if (effect.duration === 'for_one_operation') {
+          if (effect.stat === 'both' || effect.stat === 'off') {
+            target.operationOffenseBuff = (target.operationOffenseBuff || 0) + amt;
+          }
+          if (effect.stat === 'both' || effect.stat === 'def') {
+            target.operationDefenseBuff = (target.operationDefenseBuff || 0) + amt;
+          }
+          const statText = effect.stat === 'both' ? `+${amt}/+${amt} OFF/DEF` : effect.stat === 'def' ? `+${amt} DEF` : `+${amt} OFF`;
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted ${statText} to ${target.name} for one operation (Keyword: For one operation).`);
+          return { success: true, message: `Granted ${statText} to ${target.name} for one operation.` };
         } else {
-          target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
-          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Defense to ${target.name}.`);
-          return { success: true, message: `Granted +${amt} Defense to ${target.name}.` };
+          if (effect.stat === 'both') {
+            target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
+            target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
+            this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt}/+${amt} Offense and Defense to ${target.name} until end of turn (Keyword: Temporary / Until end of turn).`);
+            return { success: true, message: `Granted +${amt}/+${amt} Offense and Defense to ${target.name} until end of turn.` };
+          } else if (effect.stat === 'off') {
+            target.tempOffenseBuff = (target.tempOffenseBuff || 0) + amt;
+            this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Offense to ${target.name} until end of turn (Keyword: Temporary / Until end of turn).`);
+            return { success: true, message: `Granted +${amt} Offense to ${target.name} until end of turn.` };
+          } else {
+            target.tempDefenseBuff = (target.tempDefenseBuff || 0) + amt;
+            this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} granted +${amt} Defense to ${target.name} until end of turn (Keyword: Temporary / Until end of turn).`);
+            return { success: true, message: `Granted +${amt} Defense to ${target.name} until end of turn.` };
+          }
         }
       }
 
@@ -3562,16 +3581,28 @@ export class SpywarEngine {
       }
       player.telemetry.operationsConductedThisTurn++;
 
+      // Helper to cleanup one-operation buffs used in an operation
+      const cleanupOneOperationBuffs = (participatingAttackers: Card[], defendingCards: Card[], target?: Card) => {
+        for (const a of participatingAttackers) {
+          if (a.operationOffenseBuff) a.operationOffenseBuff = 0;
+        }
+        for (const d of defendingCards) {
+          if (d.operationDefenseBuff) d.operationDefenseBuff = 0;
+        }
+        if (target && target.operationDefenseBuff) target.operationDefenseBuff = 0;
+      };
+
       // 1. Boksoon Specialized Ability: Discard enemy operative with Assassin >= 1
       if (action.opType === 'boksoon_ass') {
         const target = action.targetCard!;
-        const atk = (op.off || 4) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.ass || 3); // Boksoon ATK
+        const atk = (op.off || 4) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.ass || 3); // Boksoon ATK
         const defRes = this.resolveDefense(opponent, 'ass', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-ASS', `🛡️ DEFENSIVE TEAM! ${defRes.message} stepped in to thwart Boksoon's strike (ATK: ${atk})! Attack negated!`);
           this.placeMissionTokens(opponent, 'thwart_ass', 1);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders, target);
           return { success: true, thwarted: true, message: `Boksoon strike thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3583,19 +3614,21 @@ export class SpywarEngine {
           this.log(player.pid, 'BOKSOON-EXECUTE', `Boksoon executed targeted assassination on ${target.name} (Assassin skill >= 1). Target destroyed!`);
           this.placeMissionTokens(player, 'kills', 1);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders, target);
           return { success: true, message: `Boksoon executed ${target.name}.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
 
       // 2. Mata Hari Specialized Ability: Steal random card from enemy hand
       if (action.opType === 'mata_hari_steal') {
-        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.sub || 3); // Mata Hari ATK
+        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.sub || 3); // Mata Hari ATK
         const defRes = this.resolveDefense(opponent, 'sub', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-SUB', `🛡️ DEFENSIVE TEAM! ${defRes.message} intercepted Mata Hari's infiltration (ATK: ${atk})! Attack neutralized!`);
           this.placeMissionTokens(opponent, 'thwart_sub', 1);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders);
           return { success: true, thwarted: true, message: `Mata Hari infiltration thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3609,19 +3642,21 @@ export class SpywarEngine {
             this.placeMissionTokens(player, 'hand_wipe', 1);
           }
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders);
           return { success: true, message: `Stole ${stolen.name} from enemy hand!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
 
       // 3. Ghost Specialized Activation: Siphon 2 resources
       if (action.opType === 'ghost_siphon') {
-        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.raid || 3); // Ghost ATK
+        const atk = (op.off || 3) + this.getCardStatTokensBuff(op) + (op.tempOffenseBuff || 0) + (op.operationOffenseBuff || 0) + (op.raid || 3); // Ghost ATK
         const defRes = this.resolveDefense(opponent, 'raid', atk, defenderCardIds || action.defenderCardIds);
 
         if (defRes.thwarted) {
           this.log(opponent.pid, 'THWART-RAID', `🛡️ DEFENSIVE TEAM! ${defRes.message} blocked Ghost's siphon exploit (ATK: ${atk})! Zero resources stolen.`);
           this.placeMissionTokens(opponent, 'thwart_raid', 1);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders);
           return { success: true, thwarted: true, message: `Ghost siphon thwarted by ${defRes.message}!`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
 
@@ -3635,6 +3670,7 @@ export class SpywarEngine {
           this.log(player.pid, 'GHOST-ACTIVATE', `Ghost activated cyber-siphon! Captured ${stolen} resources from ${opponent.name}.`);
           this.placeMissionTokens(player, 'res_theft', stolen);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
+          cleanupOneOperationBuffs(attackers, defRes.defenders);
           return { success: true, message: `Ghost captured ${stolen} resources.`, defendersUsed: defRes.defenders, totalDef: defRes.totalDef };
         }
       }
@@ -3646,7 +3682,7 @@ export class SpywarEngine {
 
         let atk = 0;
         for (const a of attackers) {
-          atk += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0);
+          atk += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.ass || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
 
@@ -3656,7 +3692,7 @@ export class SpywarEngine {
         // Calculate target's innate defense if target was not already one of the active defending operatives
         const isExh = target.exhausted;
         const targetAlreadyInDefenders = defRes.defenders.some(d => d.id === target.id);
-        const targetInnateDef = targetAlreadyInDefenders ? 0 : ((target.def || 1) + this.getCardStatTokensBuff(target) + (isExh ? 0 : (target.ass || 0)) + (target.tempDefenseBuff || 0));
+        const targetInnateDef = targetAlreadyInDefenders ? 0 : ((target.def || 1) + this.getCardStatTokensBuff(target) + (isExh ? 0 : (target.ass || 0)) + (target.tempDefenseBuff || 0) + (target.defendingDefenseBuff || 0) + (target.operationDefenseBuff || 0));
         const effectiveDef = defRes.totalDef + targetInnateDef;
 
         // Helper to discard card from player battlefield to discard pile
@@ -3672,6 +3708,7 @@ export class SpywarEngine {
         // - Attacker > Defender: Assassination successful, Defending cards are discarded.
         // - Attacker == Defender: Assassination successful, both Attacker and Defender cards are discarded.
         // - Attacker < Defender: Assassination Failed, Attacker cards are discarded.
+        cleanupOneOperationBuffs(attackers, defRes.defenders, target);
         if (atk > effectiveDef) {
           // Success: Defending cards discarded (target + defending operatives)
           discardFromBattlefield(opponent, target);
@@ -3728,7 +3765,7 @@ export class SpywarEngine {
         let totalRaidOff = 0;
         let totalRaidSkill = 0;
         for (const a of attackers) {
-          totalRaidOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0);
+          totalRaidOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.raid || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
           totalRaidSkill += (a.raid || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
@@ -3745,6 +3782,7 @@ export class SpywarEngine {
           }
         };
 
+        cleanupOneOperationBuffs(attackers, defRes.defenders);
         // RAID RESOLUTION RULES:
         // - Attacker > Defender: Raid is successful.
         //   Rule: 1 coin is taken for every card used in the Operation, plus 1 additional coin for each point of applicable skill (raid skill) in the Operation.
@@ -3805,7 +3843,7 @@ export class SpywarEngine {
         let totalSubOff = 0;
         let totalSubSkill = 0;
         for (const a of attackers) {
-          totalSubOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0);
+          totalSubOff += (a.off || 1) + this.getCardStatTokensBuff(a) + (a.sub || 0) + (a.tempOffenseBuff || 0) + (a.operationOffenseBuff || 0);
           totalSubSkill += (a.sub || 0);
         }
         const attackerNames = attackers.map(a => a.name).join(' + ');
@@ -3821,6 +3859,8 @@ export class SpywarEngine {
             p.discard_pile.push(c);
           }
         };
+
+        cleanupOneOperationBuffs(attackers, defRes.defenders);
 
         // SUBTERFUGE RESOLUTION RULES:
         // - Attacker > Defender: Subterfuge is successful.
@@ -4017,7 +4057,7 @@ export class SpywarEngine {
   // ==========================================
   calculateOperativeDefense(card: Card, threatType: 'ass' | 'sub' | 'raid'): { baseDef: number; tempBuff: number; skillBonus: number; totalDef: number } {
     const baseDef = card.def || 1;
-    const tempBuff = (card.tempDefenseBuff || 0) + this.getCardStatTokensBuff(card);
+    const tempBuff = (card.tempDefenseBuff || 0) + (card.defendingDefenseBuff || 0) + (card.operationDefenseBuff || 0) + this.getCardStatTokensBuff(card);
     let skillRating = 0;
     if (threatType === 'ass') skillRating = card.ass || 0;
     else if (threatType === 'sub') skillRating = card.sub || 0;

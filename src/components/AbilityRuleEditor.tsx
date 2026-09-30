@@ -671,6 +671,41 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 >
                   +Operative cost {chipParamX} less resource
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Temporary: Selected Operative gains +${chipParamX} OFF until end of turn.`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +Temporary (+{chipParamX} OFF)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`until end of turn`)}
+                  className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-600 text-[10px] font-mono transition-colors"
+                >
+                  +until end of turn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`for one operation`)}
+                  className="px-2 py-0.5 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +for one operation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`when defending`)}
+                  className="px-2 py-0.5 rounded bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +when defending
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`for 1 turn`)}
+                  className="px-2 py-0.5 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +for 1 turn
+                </button>
               </div>
             </div>
           </div>

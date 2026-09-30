@@ -60,6 +60,10 @@ export interface AtomicEffect {
   // For Exhaust keyword
   exhaustTargetType?: 'card' | 'operative' | 'location';
   exhaustCount?: number;
+  // Keywords: Temporary, Until end of turn, For one operation, when defending, For 1 turn
+  duration?: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation' | 'permanent';
+  condition?: 'when_defending' | 'none';
+  isTemporary?: boolean;
   // For modal choice (e.g. "+1 OFF or +1 DEF" or "Discard 1 from hand OR 2 in play")
   choices?: AtomicEffect[];
   choiceLabels?: string[];
@@ -76,6 +80,9 @@ export interface ParsedAbilityDefinition {
   isInterrupt?: boolean; // Can be played anytime, out of player's turn, even when not being attacked
   isIntercept?: boolean; // Can be deployed or use special ability out of turn when attacked with special ability or operation
   discardAtEndOfTurn?: boolean; // Automatically discarded at the end of the player's turn
+  isTemporary?: boolean; // Benefits marked as temporary last only as long as specified
+  duration?: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation';
+  condition?: 'when_defending';
   costCoins?: number;
   targetType: AbilityTargetType;
   effects: AtomicEffect[];
@@ -147,6 +154,41 @@ export class AbilityParserService {
     const hasInterceptKeyword = lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction');
     const hasDiscardEndTurn = lower.includes('discard at end of turn') || lower.includes('discard at the end of turn') || lower.includes('discard at end of your turn') || lower.includes('discard at end of player\'s turn') || lower.includes('discard at the end of the player\'s turn');
 
+    // Modifiers, Durations & Conditions (Temporary, Until end of turn, For one operation, when defending, For 1 turn)
+    let isTemporary = false;
+    let duration: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation' | undefined = undefined;
+    let condition: 'when_defending' | undefined = undefined;
+
+    const hasTemporaryKeyword = lower.includes('temporary');
+    const hasUntilEndTurn = lower.includes('until end of turn') || lower.includes('until the end of turn') || lower.includes('until end of your turn') || lower.includes('until end of player\'s turn') || lower.includes('until end of round');
+    const hasForOneOperation = lower.includes('for one operation') || lower.includes('for 1 operation') || lower.includes('during one operation') || lower.includes('in one operation');
+    const hasWhenDefending = lower.includes('when defending') || lower.includes('while defending') || lower.includes('against an enemy operation') || lower.includes('defending against an enemy');
+    const hasFor1Turn = lower.includes('for 1 turn') || lower.includes('for one turn');
+
+    if (hasTemporaryKeyword) {
+      isTemporary = true;
+      recognizedKeywords.push('Temporary');
+    }
+    if (hasUntilEndTurn) {
+      duration = 'until_end_of_turn';
+      isTemporary = true;
+      recognizedKeywords.push('Until end of turn');
+    }
+    if (hasFor1Turn) {
+      duration = 'for_1_turn';
+      isTemporary = true;
+      recognizedKeywords.push('For 1 turn');
+    }
+    if (hasForOneOperation) {
+      duration = 'for_one_operation';
+      isTemporary = true;
+      recognizedKeywords.push('For one operation');
+    }
+    if (hasWhenDefending) {
+      condition = 'when_defending';
+      recognizedKeywords.push('when defending');
+    }
+
     if (hasDiscardEndTurn) {
       discardAtEndOfTurn = true;
       recognizedKeywords.push('Discard at end of turn');
@@ -210,7 +252,7 @@ export class AbilityParserService {
     if (lower.includes('all friendly') || lower.includes('each friendly')) {
       targetType = 'all_friendly_ops';
       recognizedKeywords.push('All Friendly Operatives');
-    } else if (lower.includes('friendly op') || lower.includes('friendly operative') || lower.includes('target operative') || lower.includes('any operative')) {
+    } else if (lower.includes('friendly op') || lower.includes('friendly operative') || lower.includes('target operative') || lower.includes('selected operative') || lower.includes('selected op') || lower.includes('any operative')) {
       targetType = 'friendly_op';
       recognizedKeywords.push('Friendly Operative Target');
     } else if (lower.includes('enemy op') || lower.includes('enemy operative')) {
@@ -233,8 +275,8 @@ export class AbilityParserService {
       effects.push({
         type: 'choice',
         choices: [
-          { type: 'buff_stat', stat: 'off', amount: 2, rawPhrase: 'Give +2 OFF to Attack Team' },
-          { type: 'buff_stat', stat: 'def', amount: 2, rawPhrase: 'Give +2 DEF to Defense Team' }
+          { type: 'buff_stat', stat: 'off', amount: 2, duration, condition, isTemporary, rawPhrase: 'Give +2 OFF to Attack Team' },
+          { type: 'buff_stat', stat: 'def', amount: 2, duration, condition, isTemporary, rawPhrase: 'Give +2 DEF to Defense Team' }
         ],
         choiceLabels: ['Give +2 OFF to Attack Team', 'Give +2 DEF to Defense Team']
       });
@@ -250,8 +292,8 @@ export class AbilityParserService {
       effects.push({
         type: 'choice',
         choices: [
-          { type: 'buff_stat', stat: 'off', amount: 1, rawPhrase: '+1 Offense' },
-          { type: 'buff_stat', stat: 'def', amount: 1, rawPhrase: '+1 Defense' }
+          { type: 'buff_stat', stat: 'off', amount: 1, duration, condition, isTemporary, rawPhrase: '+1 Offense' },
+          { type: 'buff_stat', stat: 'def', amount: 1, duration, condition, isTemporary, rawPhrase: '+1 Defense' }
         ],
         choiceLabels: ['+1 Offense', '+1 Defense']
       });
@@ -264,7 +306,14 @@ export class AbilityParserService {
       if (offMatch) {
         const amt = parseInt(offMatch[1]);
         recognizedKeywords.push(`+${amt} Offense Buff`);
-        effects.push({ type: 'buff_stat', stat: 'off', amount: amt });
+        effects.push({
+          type: 'buff_stat',
+          stat: 'off',
+          amount: amt,
+          duration,
+          condition,
+          isTemporary
+        });
         if (targetType === 'none') targetType = 'friendly_op';
       }
 
@@ -272,7 +321,14 @@ export class AbilityParserService {
       if (defMatch) {
         const amt = parseInt(defMatch[1]);
         recognizedKeywords.push(`+${amt} Defense Buff`);
-        effects.push({ type: 'buff_stat', stat: 'def', amount: amt });
+        effects.push({
+          type: 'buff_stat',
+          stat: 'def',
+          amount: amt,
+          duration,
+          condition,
+          isTemporary
+        });
         if (targetType === 'none') targetType = 'friendly_op';
       }
     }
@@ -692,11 +748,11 @@ export class AbilityParserService {
       // Ignore in non-browser / headless context
     }
 
-    const isValid = effects.length > 0 || isInterrupt || isIntercept || discardAtEndOfTurn;
-    const canPlayOnDefense = trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept || lower.includes('on defense') || !!presetConfig?.canPlayOnDefense;
+    const isValid = effects.length > 0 || isInterrupt || isIntercept || discardAtEndOfTurn || isTemporary;
+    const canPlayOnDefense = trigger === 'reaction_defense' || trigger === 'intercept' || isIntercept || lower.includes('on defense') || condition === 'when_defending' || !!presetConfig?.canPlayOnDefense;
 
     // Generate human-readable summary
-    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense, costCoins, isPassive, requiresTap, isInterrupt, isIntercept, discardAtEndOfTurn);
+    const summary = this.generateSummary(trigger, targetType, effects, canPlayOnDefense, costCoins, isPassive, requiresTap, isInterrupt, isIntercept, discardAtEndOfTurn, isTemporary, duration, condition);
 
     return {
       trigger,
@@ -706,6 +762,9 @@ export class AbilityParserService {
       isInterrupt,
       isIntercept,
       discardAtEndOfTurn,
+      isTemporary,
+      duration,
+      condition,
       costCoins: costCoins > 0 ? costCoins : undefined,
       targetType,
       effects,
@@ -728,8 +787,14 @@ export class AbilityParserService {
     costCoins?: number;
     isPassive?: boolean;
     discardAtEndOfTurn?: boolean;
+    isTemporary?: boolean;
+    duration?: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation';
+    condition?: 'when_defending';
   }): string {
     const parts: string[] = [];
+    if (config.isTemporary) {
+      parts.push('Temporary:');
+    }
     const hasCost = config.costCoins && config.costCoins > 0;
     const costStr = hasCost ? `Pay ${config.costCoins} coin${config.costCoins! > 1 ? 's' : ''}` : '';
 
@@ -854,6 +919,18 @@ export class AbilityParserService {
       parts.push('Can also be played out-of-turn on defense.');
     }
 
+    if (config.condition === 'when_defending') {
+      parts.push('When defending against an enemy operation.');
+    }
+
+    if (config.duration === 'for_one_operation') {
+      parts.push('For one operation.');
+    } else if (config.duration === 'for_1_turn') {
+      parts.push('For 1 turn.');
+    } else if (config.duration === 'until_end_of_turn') {
+      parts.push('Until end of turn.');
+    }
+
     if (config.discardAtEndOfTurn) {
       parts.push('Discard at end of turn.');
     }
@@ -871,9 +948,12 @@ export class AbilityParserService {
     requiresTap?: boolean,
     isInterrupt?: boolean,
     isIntercept?: boolean,
-    discardAtEndOfTurn?: boolean
+    discardAtEndOfTurn?: boolean,
+    isTemporary?: boolean,
+    duration?: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation',
+    condition?: 'when_defending'
   ): string {
-    if (effects.length === 0 && !isInterrupt && !isIntercept && !discardAtEndOfTurn) {
+    if (effects.length === 0 && !isInterrupt && !isIntercept && !discardAtEndOfTurn && !isTemporary) {
       return 'Passive or unmodeled card text.';
     }
 
@@ -953,7 +1033,10 @@ export class AbilityParserService {
     }).join(' + ');
 
     const endTurnTag = discardAtEndOfTurn ? ' | ⏳ Discard at end of turn' : '';
+    const tempTag = isTemporary ? ' | ⏳ Temporary' : '';
+    const durationTag = duration === 'for_one_operation' ? ' (For one operation)' : duration === 'for_1_turn' ? ' (For 1 turn)' : duration === 'until_end_of_turn' ? ' (Until end of turn)' : '';
+    const condTag = condition === 'when_defending' ? ' (When defending)' : '';
 
-    return `[${triggerLabel}] -> [Target: ${targetLabel}] -> ${effectSummary || 'Keyword effect'}${endTurnTag}`;
+    return `[${triggerLabel}] -> [Target: ${targetLabel}] -> ${effectSummary || 'Keyword effect'}${durationTag}${condTag}${endTurnTag}${tempTag}`;
   }
 }

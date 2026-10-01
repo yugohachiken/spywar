@@ -154,7 +154,7 @@ export class AbilityParserService {
     const hasInterceptKeyword = lower.includes('intercept') || lower.includes('reaction') || lower.includes('out-of-turn') || lower.includes('on defense') || lower.includes('defensive reaction');
     const hasDiscardEndTurn = lower.includes('discard at end of turn') || lower.includes('discard at the end of turn') || lower.includes('discard at end of your turn') || lower.includes('discard at end of player\'s turn') || lower.includes('discard at the end of the player\'s turn');
 
-    // Modifiers, Durations & Conditions (Temporary, Until end of turn, For one operation, when defending, For 1 turn)
+    // Modifiers, Durations & Conditions (Temporary, Until end of turn, For one operation, when defending, For 1 turn, or)
     let isTemporary = false;
     let duration: 'until_end_of_turn' | 'for_1_turn' | 'for_one_operation' | undefined = undefined;
     let condition: 'when_defending' | undefined = undefined;
@@ -164,6 +164,7 @@ export class AbilityParserService {
     const hasForOneOperation = lower.includes('for one operation') || lower.includes('for 1 operation') || lower.includes('during one operation') || lower.includes('in one operation');
     const hasWhenDefending = lower.includes('when defending') || lower.includes('while defending') || lower.includes('against an enemy operation') || lower.includes('defending against an enemy');
     const hasFor1Turn = lower.includes('for 1 turn') || lower.includes('for one turn');
+    const hasOrKeyword = /\bor\b/i.test(lower) || lower.includes(' or ') || lower.includes('/');
 
     if (hasTemporaryKeyword) {
       isTemporary = true;
@@ -187,6 +188,9 @@ export class AbilityParserService {
     if (hasWhenDefending) {
       condition = 'when_defending';
       recognizedKeywords.push('when defending');
+    }
+    if (hasOrKeyword) {
+      recognizedKeywords.push('or');
     }
 
     if (hasDiscardEndTurn) {
@@ -219,7 +223,7 @@ export class AbilityParserService {
       trigger = 'passive';
       isPassive = true;
       requiresTap = false;
-      recognizedKeywords.push('Passive (No Exhaust)');
+      recognizedKeywords.push('Passive (No Exhaust - Usable Multiple Times/Turn)');
       if (costCoins > 0) {
         recognizedKeywords.push(`Multi-Trigger: Passive + Pay ${costCoins}`);
       }
@@ -232,19 +236,30 @@ export class AbilityParserService {
         recognizedKeywords.push(`Multi-Trigger: Tap + Pay ${costCoins}`);
       }
     } else if (costCoins > 0) {
-      trigger = 'pay_coins';
-      isPassive = true; // "Pay x" without tap does not exhaust
-      requiresTap = false;
-      recognizedKeywords.push(`Pay ${costCoins} Trigger (Passive / No Exhaust)`);
-    } else if (presetConfig?.trigger) {
-      trigger = presetConfig.trigger;
-      if (trigger === 'passive') isPassive = true;
-      if (trigger === 'tap') requiresTap = true;
-      if (trigger === 'interrupt') isInterrupt = true;
-      if (trigger === 'intercept') isIntercept = true;
-    } else {
+      // Under rule clarification: To use a card's special ability, player must Exhaust/Tap the card,
+      // even if the description did not mention "Tap". Only "Passive" exempts from exhaust.
       trigger = 'tap';
       requiresTap = true;
+      isPassive = false;
+      recognizedKeywords.push(`Pay ${costCoins} (Requires Exhaust / 1 use per turn)`);
+    } else if (presetConfig?.trigger) {
+      trigger = presetConfig.trigger;
+      if (trigger === 'passive') {
+        isPassive = true;
+        requiresTap = false;
+      } else if (trigger === 'tap') {
+        requiresTap = true;
+        isPassive = false;
+      } else if (trigger === 'interrupt') {
+        isInterrupt = true;
+      } else if (trigger === 'intercept') {
+        isIntercept = true;
+      }
+    } else {
+      // Default: All special abilities exhaust the card (1 use per turn) unless marked Passive
+      trigger = 'tap';
+      requiresTap = true;
+      isPassive = false;
     }
 
     // 2. Detect Target Type
@@ -252,7 +267,17 @@ export class AbilityParserService {
     if (lower.includes('all friendly') || lower.includes('each friendly')) {
       targetType = 'all_friendly_ops';
       recognizedKeywords.push('All Friendly Operatives');
-    } else if (lower.includes('friendly op') || lower.includes('friendly operative') || lower.includes('target operative') || lower.includes('selected operative') || lower.includes('selected op') || lower.includes('any operative')) {
+    } else if (
+      lower.includes('friendly op') ||
+      lower.includes('friendly operative') ||
+      lower.includes('target operative') ||
+      lower.includes('selected operative') ||
+      lower.includes('selected op') ||
+      lower.includes('any operative') ||
+      lower.includes('give operative') ||
+      lower.includes('give an operative') ||
+      lower.includes('give target operative')
+    ) {
       targetType = 'friendly_op';
       recognizedKeywords.push('Friendly Operative Target');
     } else if (lower.includes('enemy op') || lower.includes('enemy operative')) {
@@ -282,20 +307,21 @@ export class AbilityParserService {
       });
     }
 
-    // B. Buff Offense or Defense Choice
-    else if (
-      (lower.includes('+1 off') || lower.includes('+1 offense')) &&
-      (lower.includes('+1 def') || lower.includes('+1 defense')) &&
-      (lower.includes(' or ') || lower.includes('/'))
-    ) {
-      recognizedKeywords.push('Choice: +1 OFF or +1 DEF');
+    // B. Buff Offense or Defense Choice (e.g. "+2 OFF or +2 DEF", "+1 OFF or +1 DEF")
+    else if (hasOrKeyword && lower.match(/\+?([1-9])\s*(?:off|offense)\b/i) && lower.match(/\+?([1-9])\s*(?:def|defense)\b/i)) {
+      const offMatch = lower.match(/\+?([1-9])\s*(?:off|offense)\b/i)!;
+      const defMatch = lower.match(/\+?([1-9])\s*(?:def|defense)\b/i)!;
+      const offAmt = parseInt(offMatch[1]);
+      const defAmt = parseInt(defMatch[1]);
+      const durSuffix = duration === 'for_1_turn' ? ' (for 1 turn)' : duration === 'for_one_operation' ? ' (for one operation)' : duration === 'until_end_of_turn' ? ' (until end of turn)' : '';
+      recognizedKeywords.push(`Choice: +${offAmt} OFF or +${defAmt} DEF`);
       effects.push({
         type: 'choice',
         choices: [
-          { type: 'buff_stat', stat: 'off', amount: 1, duration, condition, isTemporary, rawPhrase: '+1 Offense' },
-          { type: 'buff_stat', stat: 'def', amount: 1, duration, condition, isTemporary, rawPhrase: '+1 Defense' }
+          { type: 'buff_stat', stat: 'off', amount: offAmt, duration, condition, isTemporary, rawPhrase: `+${offAmt} OFF${durSuffix}` },
+          { type: 'buff_stat', stat: 'def', amount: defAmt, duration, condition, isTemporary, rawPhrase: `+${defAmt} DEF${durSuffix}` }
         ],
-        choiceLabels: ['+1 Offense', '+1 Defense']
+        choiceLabels: [`+${offAmt} OFF`, `+${defAmt} DEF`]
       });
       if (targetType === 'none') targetType = 'friendly_op';
     }
@@ -364,17 +390,17 @@ export class AbilityParserService {
       if (targetType === 'none') targetType = 'friendly_op';
     }
 
-    const poweredArmorMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*powered\s*armor(?:\s*token[s]?)?/i)
-      || lower.match(/\+?\s*([0-9]+)\s*powered\s*armor(?:\s*token[s]?)?/i);
+    const poweredArmorMatch = lower.match(/\+?\s*([0-9]+)\s*\/\s*\+?\s*([0-9]+)\s*power(?:ed)?\s*armor(?:\s*token[s]?)?/i)
+      || lower.match(/\+?\s*([0-9]+)\s*power(?:ed)?\s*armor(?:\s*token[s]?)?/i);
     if (poweredArmorMatch) {
       const amt = parseInt(poweredArmorMatch[1]);
-      recognizedKeywords.push(`+${amt}/+${amt} Powered armor Token`);
+      recognizedKeywords.push(`+${amt}/+${amt} Power Armor Token`);
       effects.push({
         type: 'grant_token',
-        tokenType: 'powered_armor',
+        tokenType: 'power_armor',
         stat: 'both',
         amount: amt,
-        rawPhrase: `+${amt}/+${amt} Powered armor token`
+        rawPhrase: `+${amt}/+${amt} Power Armor token`
       });
       if (targetType === 'none') targetType = 'friendly_op';
     }
@@ -859,8 +885,8 @@ export class AbilityParserService {
           effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Weapon token`);
         } else if (eff.tokenType === 'suit') {
           effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Suit token`);
-        } else if (eff.tokenType === 'powered_armor') {
-          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Powered armor token`);
+        } else if (eff.tokenType === 'power_armor' || eff.tokenType === 'powered_armor') {
+          effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Power Armor token`);
         } else if (eff.tokenType === 'power_suit') {
           effectPhrases.push(`+${eff.amount || 1}/+${eff.amount || 1} Power Suit token`);
         } else if (eff.tokenType === 'discard') {
@@ -964,16 +990,14 @@ export class AbilityParserService {
       triggerLabel = `⚡ Interrupt (Play Anytime Out-of-Turn)${costText}`;
     } else if (trigger === 'intercept' || isIntercept) {
       triggerLabel = `🛡️ Intercept (Play Out-of-Turn When Attacked)${costText}`;
-    } else if (trigger === 'tap' && costCoins) {
-      triggerLabel = `⚡💰 Multi-Trigger: Tap + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
-    } else if (trigger === 'tap') {
-      triggerLabel = '⚡ Tap (In Play)';
     } else if (trigger === 'passive' && costCoins) {
       triggerLabel = `⚙️💰 Multi-Trigger: Passive (No Exhaust) + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
     } else if (trigger === 'passive') {
-      triggerLabel = '⚙️ Passive (No Exhaust)';
-    } else if (trigger === 'pay_coins') {
-      triggerLabel = `💰 Pay ${costCoins || 1} Coin${(costCoins || 1) > 1 ? 's' : ''} (Passive / No Exhaust)`;
+      triggerLabel = '⚙️ Passive (No Exhaust - Multiple Uses/Turn)';
+    } else if (trigger === 'pay_coins' || (trigger === 'tap' && costCoins)) {
+      triggerLabel = `⚡💰 Multi-Trigger: Exhaust + Pay ${costCoins || 1} Coin${(costCoins || 1) > 1 ? 's' : ''} (1 use/turn)`;
+    } else if (trigger === 'tap') {
+      triggerLabel = '⚡ Tap / Exhaust (1 use/turn)';
     } else if (trigger === 'sacrifice' && costCoins) {
       triggerLabel = `🔥💰 Multi-Trigger: Sacrifice + Pay ${costCoins} Coin${costCoins > 1 ? 's' : ''}`;
     } else if (trigger === 'sacrifice') {
@@ -998,7 +1022,7 @@ export class AbilityParserService {
       if (e.type === 'grant_token') {
         if (e.tokenType === 'weapon') return `+${e.amount}/+${e.amount} Weapon Token`;
         if (e.tokenType === 'suit') return `+${e.amount}/+${e.amount} Suit Token`;
-        if (e.tokenType === 'powered_armor') return `+${e.amount}/+${e.amount} Powered Armor Token`;
+        if (e.tokenType === 'power_armor' || e.tokenType === 'powered_armor') return `+${e.amount}/+${e.amount} Power Armor Token`;
         if (e.tokenType === 'power_suit') return `+${e.amount}/+${e.amount} Power Suit Token`;
         if (e.tokenType === 'discard') return `Discard Token`;
         if (e.tokenType === 'tech' || e.stat === 'both') {

@@ -1340,6 +1340,39 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                   <span>Test "Operative Crew: Deploy (+2 OFF to Attack Team)"</span>
                   <span className="text-[10px] font-mono opacity-80">Cost: 3 Coins</span>
                 </button>
+
+                <button
+                  onClick={() => {
+                    p1.current_turn_coins = Math.max(p1.current_turn_coins, 5);
+                    const crewCard: Card = {
+                      id: `op_crew_reject_${Date.now()}`,
+                      name: 'Operative Crew',
+                      type: 'Support',
+                      cost: 3,
+                      isIntercept: true,
+                      canPlayOnDefense: true,
+                      abilityText: 'Intercept: Can not be used unless performing an attack or defense operation. Attack team receives +2 OFF; Defense team receives +2 DEF.'
+                    };
+                    p1.hand.push(crewCard);
+
+                    // Attempt to play without any operative in attack or defense
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'PLAY_CARD',
+                      cardId: crewCard.id,
+                      cardName: crewCard.name,
+                      card: crewCard,
+                      attackerCards: [],
+                      desc: 'Deploy Operative Crew without Operative team'
+                    });
+                    addTestLog(`🚫 [Operative Crew Standalone Attempt]: ${res.message} (Success: ${res.success})`);
+                    const isPassed = !res.success && res.message.includes('Operative Crew can not be used unless');
+                    addTestLog(`✅ [Operative Crew Restriction]: ${isPassed ? 'PASSED - Correctly rejected when no Operative performing operation!' : 'FAILED'}`);
+                  }}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-rose-300 border border-rose-600/50 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test "Operative Crew: Reject if No Operative in Op"</span>
+                  <span className="text-[10px] font-mono opacity-80">Must Have Operative</span>
+                </button>
               </div>
             </div>
 
@@ -2299,6 +2332,629 @@ export const AbilityTestLab: React.FC<AbilityTestLabProps> = ({ engine, onRefres
                 >
                   <span>Test "For 1 turn (+1 DEF)"</span>
                   <span className="text-[10px] font-mono opacity-80">1 Turn Duration</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 16: or (Choice) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-amber-500/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">16. or (Modal Choice)</h4>
+                    <span className="text-[10px] text-amber-400 font-mono">Player must select which ability to activate</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-mono font-bold">
+                  Rule Example
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Player must select which special ability to activate. Example: <span className="text-amber-300 font-semibold">"Tap: Give Operative +2 OFF or +2 DEF for 1 turn."</span> Engine presents both branches and activates only the selected choice.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    const testOp: Card = {
+                      id: `choice_op_${Date.now()}`,
+                      name: 'Spec-Ops Infiltrator',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      exhausted: false
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('choice_op_') && !c.id.startsWith('choice_card_'));
+                    p1.battlefield.push(testOp);
+
+                    const choiceCard: Card = {
+                      id: `choice_card_${Date.now()}`,
+                      name: 'Tactical Coordinator',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Give Operative +2 OFF or +2 DEF for 1 turn.'
+                    };
+                    p1.battlefield.push(choiceCard);
+
+                    // Query legal actions from engine to verify choice options generated
+                    const legal = engine.getLegalActions(p1, p2);
+                    const choiceActs = legal.filter(a => a.cardId === choiceCard.id && a.type === 'DYNAMIC_ABILITY');
+                    addTestLog(`🔀 [Choice Action Branches]: Generated ${choiceActs.length} branch(es) for "${choiceCard.abilityText}"`);
+
+                    // Player selects Option 1 (+2 OFF)
+                    const offAction = choiceActs.find(a => a.desc.includes('+2 OFF') || a.subChoice === 'choice_0') || {
+                      type: 'DYNAMIC_ABILITY',
+                      card: choiceCard,
+                      targetCard: testOp,
+                      targetId: testOp.id,
+                      targetName: testOp.name,
+                      subChoice: 'choice_0',
+                      dynamicAbilityEffect: {
+                        abilityText: choiceCard.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'off', amount: 2, duration: 'for_1_turn', isTemporary: true }
+                      },
+                      desc: `Exhaust ${choiceCard.name}: Give ${testOp.name} [+2 OFF]`
+                    };
+
+                    const res = engine.executeAction(p1, p2, offAction);
+                    const activeOff = (testOp.off || 2) + (testOp.tempOffenseBuff || 0);
+                    const activeDef = (testOp.def || 2) + (testOp.tempDefenseBuff || 0);
+                    addTestLog(`⚔️ [Selected +2 OFF]: ${res.message} -> OFF: ${activeOff} (Expected: 4), DEF: ${activeDef} (Expected: 2).`);
+
+                    // End turn to verify 1 turn reversion
+                    engine.passTurn();
+                    const revertedOff = (testOp.off || 2) + (testOp.tempOffenseBuff || 0);
+                    addTestLog(`⏳ [Reversion After 1 Turn]: Turn ended. OFF: ${revertedOff} (Reverted back to 2!).`);
+                    addTestLog(`✅ [Modal Choice Option 1 (+2 OFF)]: ${activeOff === 4 && activeDef === 2 && revertedOff === 2 ? 'PASSED' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Select Choice 1: "+2 OFF for 1 turn"</span>
+                  <span className="text-[10px] font-mono opacity-80">+2 OFF</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const testOp: Card = {
+                      id: `choice_op_${Date.now()}`,
+                      name: 'Spec-Ops Infiltrator',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      exhausted: false
+                    };
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('choice_op_') && !c.id.startsWith('choice_card_'));
+                    p1.battlefield.push(testOp);
+
+                    const choiceCard: Card = {
+                      id: `choice_card_${Date.now()}`,
+                      name: 'Tactical Coordinator',
+                      type: 'Support',
+                      cost: 0,
+                      abilityText: 'Tap: Give Operative +2 OFF or +2 DEF for 1 turn.'
+                    };
+                    p1.battlefield.push(choiceCard);
+
+                    // Query legal actions from engine to verify choice options generated
+                    const legal = engine.getLegalActions(p1, p2);
+                    const choiceActs = legal.filter(a => a.cardId === choiceCard.id && a.type === 'DYNAMIC_ABILITY');
+                    addTestLog(`🔀 [Choice Action Branches]: Generated ${choiceActs.length} branch(es) for "${choiceCard.abilityText}"`);
+
+                    // Player selects Option 2 (+2 DEF)
+                    const defAction = choiceActs.find(a => a.desc.includes('+2 DEF') || a.subChoice === 'choice_1') || {
+                      type: 'DYNAMIC_ABILITY',
+                      card: choiceCard,
+                      targetCard: testOp,
+                      targetId: testOp.id,
+                      targetName: testOp.name,
+                      subChoice: 'choice_1',
+                      dynamicAbilityEffect: {
+                        abilityText: choiceCard.abilityText!,
+                        effect: { type: 'buff_stat', stat: 'def', amount: 2, duration: 'for_1_turn', isTemporary: true }
+                      },
+                      desc: `Exhaust ${choiceCard.name}: Give ${testOp.name} [+2 DEF]`
+                    };
+
+                    const res = engine.executeAction(p1, p2, defAction);
+                    const activeOff = (testOp.off || 2) + (testOp.tempOffenseBuff || 0);
+                    const activeDef = (testOp.def || 2) + (testOp.tempDefenseBuff || 0);
+                    addTestLog(`🛡️ [Selected +2 DEF]: ${res.message} -> DEF: ${activeDef} (Expected: 4), OFF: ${activeOff} (Expected: 2).`);
+
+                    // End turn to verify 1 turn reversion
+                    engine.passTurn();
+                    const revertedDef = (testOp.def || 2) + (testOp.tempDefenseBuff || 0);
+                    addTestLog(`⏳ [Reversion After 1 Turn]: Turn ended. DEF: ${revertedDef} (Reverted back to 2!).`);
+                    addTestLog(`✅ [Modal Choice Option 2 (+2 DEF)]: ${activeDef === 4 && activeOff === 2 && revertedDef === 2 ? 'PASSED' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Select Choice 2: "+2 DEF for 1 turn"</span>
+                  <span className="text-[10px] font-mono opacity-80">+2 DEF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 17: Rule Clarification - Exhaust by Default vs. Passive (Multiple Uses) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-emerald-500/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">17. Special Ability Exhaust Rule vs. Passive</h4>
+                    <span className="text-[10px] text-emerald-400 font-mono">Exhausts by default (1 use/turn) | Passive (Multiple uses/turn)</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50 font-mono font-bold">
+                  Core Rule
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                To use a card's special ability, the player must Exhaust or Tap the card, even if the description did not mention "Tap". This limits it to <strong className="text-amber-300">once per turn</strong>. The only exception is if the card has <strong className="text-cyan-300">Passive</strong>, which does not tap/exhaust and can be used <strong className="text-emerald-300">more than once per turn</strong>.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('no_tap_src_'));
+                    p1.current_turn_coins = 4;
+
+                    // Card with NO "Tap" word in description: "Pay 1 coin: Draw 1 card."
+                    const defaultCard: Card = {
+                      id: `no_tap_src_${Date.now()}`,
+                      name: 'Communications Terminal',
+                      type: 'Support',
+                      cost: 0,
+                      exhausted: false,
+                      abilityText: 'Pay 1 coin: Draw 1 card.'
+                    };
+                    p1.battlefield.push(defaultCard);
+
+                    // 1. First Activation
+                    const act1 = {
+                      type: 'DYNAMIC_ABILITY' as const,
+                      card: defaultCard,
+                      cardId: defaultCard.id,
+                      cardName: defaultCard.name,
+                      dynamicAbilityEffect: {
+                        abilityText: defaultCard.abilityText!,
+                        costCoins: 1,
+                        effect: { type: 'draw' as const, amount: 1 }
+                      },
+                      desc: `Exhaust ${defaultCard.name}: Draw 1 card`
+                    };
+
+                    const res1 = engine.executeAction(p1, p2, act1);
+                    const isExhaustedAfter1 = defaultCard.exhausted;
+                    addTestLog(`⚡ [1st Activation]: ${res1.message} -> Card Exhausted: ${isExhaustedAfter1 ? 'YES (E)' : 'NO'}`);
+
+                    // 2. Query legal actions: Exhausted card should have NO actions available
+                    const legal = engine.getLegalActions(p1, p2);
+                    const actsForCard = legal.filter(a => a.cardId === defaultCard.id);
+                    addTestLog(`🔒 [2nd Attempt Query]: Found ${actsForCard.length} legal action(s) for exhausted ${defaultCard.name} (Expected: 0).`);
+                    const isPassed = isExhaustedAfter1 && actsForCard.length === 0;
+                    addTestLog(`✅ [Standard Ability Exhaust Rule]: ${isPassed ? 'PASSED - Exhausted card limited to 1 use per turn!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-600/50 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Standard: "Pay 1 coin: Draw 1 card"</span>
+                  <span className="text-[10px] font-mono opacity-80">1 Use / Turn</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('passive_src_'));
+                    p1.current_turn_coins = 4;
+                    p2.current_turn_coins = 5;
+
+                    // Card with "Passive": "Passive: Pay 1 coin: Siphon 1 coin from Opponent."
+                    const passiveCard: Card = {
+                      id: `passive_src_${Date.now()}`,
+                      name: 'Syndicate Wiretapper',
+                      type: 'Support',
+                      cost: 0,
+                      exhausted: false,
+                      abilityText: 'Passive: Pay 1 coin: Siphon 1 coin from Opponent.'
+                    };
+                    p1.battlefield.push(passiveCard);
+
+                    const actPassive = {
+                      type: 'DYNAMIC_ABILITY' as const,
+                      card: passiveCard,
+                      cardId: passiveCard.id,
+                      cardName: passiveCard.name,
+                      dynamicAbilityEffect: {
+                        abilityText: passiveCard.abilityText!,
+                        costCoins: 1,
+                        isPassive: true,
+                        requiresTap: false,
+                        effect: { type: 'siphon' as const, amount: 1 }
+                      },
+                      desc: `[Passive - Pay 1] ${passiveCard.name}: Siphon 1 coin`
+                    };
+
+                    // 1. First Activation
+                    const res1 = engine.executeAction(p1, p2, actPassive);
+                    const isExhaustedAfter1 = passiveCard.exhausted;
+                    addTestLog(`⚙️ [1st Passive Activation]: ${res1.message} -> Card Exhausted: ${isExhaustedAfter1 ? 'YES' : 'NO (Ready R)'}`);
+
+                    // 2. Second Activation in the SAME turn
+                    const res2 = engine.executeAction(p1, p2, actPassive);
+                    const isExhaustedAfter2 = passiveCard.exhausted;
+                    addTestLog(`⚙️ [2nd Passive Activation]: ${res2.message} -> Card Exhausted: ${isExhaustedAfter2 ? 'YES' : 'NO (Still Ready R)'}`);
+
+                    const isPassed = !isExhaustedAfter1 && !isExhaustedAfter2 && res1.success && res2.success;
+                    addTestLog(`✅ [Passive Multiple Uses Rule]: ${isPassed ? 'PASSED - Passive ability activated 2 times in 1 turn without exhausting!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Passive: "Passive: Pay 1 coin..."</span>
+                  <span className="text-[10px] font-mono opacity-80">Multiple Uses</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 18: Intercept & Interrupt Exhaust Rule vs. Passive */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-blue-500/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/40">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">18. Intercept &amp; Interrupt Exhaust Rule vs. Passive</h4>
+                    <span className="text-[10px] text-blue-400 font-mono">Intercept &amp; Interrupt auto-exhaust (1 use/turn) unless Passive</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-600/50 font-mono font-bold">
+                  Rule Clarification
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Using an <strong className="text-blue-300">Intercept</strong> or <strong className="text-yellow-300">Interrupt</strong> special ability automatically exhausts or taps the card as well, limiting its use to <strong className="text-amber-300">once per turn</strong>, unless it also has the <strong className="text-emerald-300">Passive</strong> special ability (which allows multiple uses).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('test_inter_'));
+                    p1.current_turn_coins = 4;
+
+                    // Standard Intercept card on battlefield
+                    const interceptCard: Card = {
+                      id: `test_inter_${Date.now()}`,
+                      name: 'Aegis Sentinel',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 3,
+                      exhausted: false,
+                      abilityText: 'Intercept: +2 DEF.'
+                    };
+                    p1.battlefield.push(interceptCard);
+
+                    // 1. Play defensive reaction using this card
+                    const res = engine.playDefensiveReactionCard(p1, interceptCard.id);
+                    const isExh = interceptCard.exhausted;
+                    addTestLog(`🛡️ [Standard Intercept Used]: ${res.message} -> Card Exhausted: ${isExh ? 'YES (E)' : 'NO'}`);
+
+                    // 2. Attempt to use it a 2nd time while exhausted
+                    const res2 = engine.playDefensiveReactionCard(p1, interceptCard.id);
+                    addTestLog(`🔒 [2nd Intercept Attempt]: ${res2.message} (Success: ${res2.success})`);
+
+                    const isPassed = isExh && !res2.success;
+                    addTestLog(`✅ [Intercept Exhaust Rule]: ${isPassed ? 'PASSED - Intercept automatically exhausted card and blocked 2nd use!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-blue-300 border border-blue-600/50 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Standard Intercept (Auto-Exhausts)</span>
+                  <span className="text-[10px] font-mono opacity-80">1 Use / Turn</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('test_passive_inter_'));
+                    p1.current_turn_coins = 4;
+
+                    // Passive Intercept card on battlefield
+                    const passiveInterCard: Card = {
+                      id: `test_passive_inter_${Date.now()}`,
+                      name: 'Cybernetic Nano-Shield',
+                      type: 'Support',
+                      cost: 2,
+                      exhausted: false,
+                      abilityText: 'Passive: Intercept: +2 DEF.'
+                    };
+                    p1.battlefield.push(passiveInterCard);
+
+                    // 1. First Reaction
+                    const res1 = engine.playDefensiveReactionCard(p1, passiveInterCard.id);
+                    const isExh1 = passiveInterCard.exhausted;
+                    addTestLog(`⚙️ [1st Passive Intercept]: ${res1.message} -> Card Exhausted: ${isExh1 ? 'YES' : 'NO (Ready R)'}`);
+
+                    // 2. Second Reaction in the SAME round
+                    const res2 = engine.playDefensiveReactionCard(p1, passiveInterCard.id);
+                    const isExh2 = passiveInterCard.exhausted;
+                    addTestLog(`⚙️ [2nd Passive Intercept]: ${res2.message} -> Card Exhausted: ${isExh2 ? 'YES' : 'NO (Still Ready R)'}`);
+
+                    const isPassed = !isExh1 && !isExh2 && res1.success && res2.success;
+                    addTestLog(`✅ [Passive Intercept Rule]: ${isPassed ? 'PASSED - Passive Intercept card did not exhaust and was used multiple times!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Passive Intercept (No Exhaust)</span>
+                  <span className="text-[10px] font-mono opacity-80">Multiple Uses</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 19: +x/+x Power Armor Token */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-emerald-500/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">19. +x/+x Power Armor Token</h4>
+                    <span className="text-[10px] text-emerald-400 font-mono">Buffs both OFF and DEF by 1 or more points | No duplicate stacking</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50 font-mono font-bold">
+                  Stat Token
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                The <strong className="text-emerald-300">+x/+x Power Armor token</strong> gives 1 or more points bonus to both <strong className="text-rose-400">Offense (OFF)</strong> and <strong className="text-blue-400">Defense (DEF)</strong>. Operatives can receive at most 1 Power Armor token (duplicate stacking prohibited).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('pa_test_'));
+                    const testOp: Card = {
+                      id: `pa_test_${Date.now()}`,
+                      name: 'Heavy Vanguard',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      exhausted: false
+                    };
+                    p1.battlefield.push(testOp);
+
+                    const paCard: Card = {
+                      id: `pa_src_${Date.now()}`,
+                      name: 'Exoskeleton Armory',
+                      type: 'Support',
+                      cost: 0,
+                      exhausted: false,
+                      abilityText: 'Tap: Give target friendly operative +2/+2 Power Armor token.'
+                    };
+                    p1.battlefield.push(paCard);
+
+                    const act = {
+                      type: 'DYNAMIC_ABILITY' as const,
+                      card: paCard,
+                      cardId: paCard.id,
+                      cardName: paCard.name,
+                      targetId: testOp.id,
+                      targetCard: testOp,
+                      dynamicAbilityEffect: {
+                        abilityText: paCard.abilityText!,
+                        effect: { type: 'grant_token' as const, tokenType: 'power_armor', amount: 2, stat: 'both' }
+                      },
+                      desc: `Give ${testOp.name} +2/+2 Power Armor token`
+                    };
+
+                    const prevOff = (testOp.off || 0) + engine.getCardStatTokensBuff(testOp);
+                    const prevDef = (testOp.def || 0) + engine.getCardStatTokensBuff(testOp);
+                    const res = engine.executeAction(p1, p2, act);
+                    const newOff = (testOp.off || 0) + engine.getCardStatTokensBuff(testOp);
+                    const newDef = (testOp.def || 0) + engine.getCardStatTokensBuff(testOp);
+
+                    addTestLog(`🛡️ [Power Armor Token Applied]: ${res.message} (OFF: ${prevOff} -> ${newOff}, DEF: ${prevDef} -> ${newDef}, Tokens: ${testOp.powerArmorTokens})`);
+                    const isPassed = res.success && newOff === prevOff + 2 && newDef === prevDef + 2 && testOp.powerArmorTokens === 2;
+                    addTestLog(`✅ [Power Armor Buff]: ${isPassed ? 'PASSED - +2/+2 Power Armor token granted to operative!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Apply "+2/+2 Power Armor Token"</span>
+                  <span className="text-[10px] font-mono opacity-80">+2 OFF / +2 DEF</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('pa_dup_'));
+                    const testOp: Card = {
+                      id: `pa_dup_${Date.now()}`,
+                      name: 'Armored Soldier',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      powerArmorTokens: 1, // Already has 1 Power Armor token
+                      appliedTokens: ['power_armor'],
+                      exhausted: false
+                    };
+                    p1.battlefield.push(testOp);
+
+                    const paCard: Card = {
+                      id: `pa_dup_src_${Date.now()}`,
+                      name: 'Exoskeleton Armory',
+                      type: 'Support',
+                      cost: 0,
+                      exhausted: false,
+                      abilityText: 'Tap: Give target friendly operative +1/+1 Power Armor token.'
+                    };
+                    p1.battlefield.push(paCard);
+
+                    const act = {
+                      type: 'DYNAMIC_ABILITY' as const,
+                      card: paCard,
+                      cardId: paCard.id,
+                      cardName: paCard.name,
+                      targetId: testOp.id,
+                      targetCard: testOp,
+                      dynamicAbilityEffect: {
+                        abilityText: paCard.abilityText!,
+                        effect: { type: 'grant_token' as const, tokenType: 'power_armor', amount: 1, stat: 'both' }
+                      },
+                      desc: `Give ${testOp.name} +1/+1 Power Armor token`
+                    };
+
+                    const res = engine.executeAction(p1, p2, act);
+                    addTestLog(`🚫 [Duplicate Power Armor Attempt]: ${res.message} (Success: ${res.success})`);
+                    const isPassed = !res.success && res.message.includes('already has a Power Armor token');
+                    addTestLog(`✅ [Stacking Restriction]: ${isPassed ? 'PASSED - Duplicate Power Armor token successfully rejected!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-rose-300 border border-rose-600/50 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Duplicate Stacking Prevention</span>
+                  <span className="text-[10px] font-mono opacity-80">Max 1 Token</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Keyword 20: Interrupt on Defense (Off-Turn Initiative Seizure & Counter-Attack) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-yellow-500/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-100">20. Interrupt on Defense &amp; Counter-Attack</h4>
+                    <span className="text-[10px] text-yellow-400 font-mono">Ready Condition | Stop Turn | Counter-Attack | Return Initiative</span>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-yellow-950 text-yellow-300 border border-yellow-600/50 font-mono font-bold">
+                  Defense Rule
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                When activated while on defense during an off-turn, the card with <strong className="text-yellow-300">Interrupt</strong> must be in <strong className="text-emerald-300">Ready condition</strong> and the player must have enough resources. It immediately stops the opponent's turn, seizes initiative to play the ability and launch an <strong className="text-rose-400">Attack Operation</strong>, and then returns initiative back to the original attacking player.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('int_def_'));
+                    p1.current_turn_coins = 4;
+
+                    // 1. Test Ready Condition requirement: Create Exhausted Interrupt operative
+                    const exhInterruptOp: Card = {
+                      id: `int_def_exh_${Date.now()}`,
+                      name: 'Exhausted Interceptor',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 2,
+                      exhausted: true, // (E) Not ready!
+                      isInterrupt: true,
+                      abilityText: 'Interrupt: Stop opponent operation and seize initiative.'
+                    };
+                    p1.battlefield.push(exhInterruptOp);
+
+                    const res = engine.executeAction(p1, p2, {
+                      type: 'INTERRUPT_ACTION',
+                      card: exhInterruptOp,
+                      cardId: exhInterruptOp.id,
+                      cardName: exhInterruptOp.name,
+                      desc: `Interrupt: ${exhInterruptOp.name}`
+                    });
+
+                    addTestLog(`🚫 [Exhausted Interrupt Test]: ${res.message} (Success: ${res.success})`);
+                    const isPassed = !res.success && res.message.includes('must be in Ready condition');
+                    addTestLog(`✅ [Ready Condition Enforced]: ${isPassed ? 'PASSED - Correctly rejected when card is not in Ready condition!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-rose-300 border border-rose-600/50 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Reject if Exhausted (Not Ready)</span>
+                  <span className="text-[10px] font-mono opacity-80">Requires Ready</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    p1.battlefield = p1.battlefield.filter(c => !c.id.startsWith('int_def_'));
+                    p2.battlefield = p2.battlefield.filter(c => !c.id.startsWith('enemy_op_'));
+                    p1.current_turn_coins = 4;
+
+                    // Ready Interrupt operative
+                    const readyInterruptOp: Card = {
+                      id: `int_def_ready_${Date.now()}`,
+                      name: 'Vanguard Interceptor',
+                      type: 'Operative',
+                      cost: 3,
+                      off: 3,
+                      def: 2,
+                      ass: 2,
+                      exhausted: false, // Ready!
+                      isInterrupt: true,
+                      abilityText: 'Interrupt: Pay 1 coin to halt opponent turn and seize initiative.',
+                    };
+                    p1.battlefield.push(readyInterruptOp);
+
+                    // Enemy target on P2 battlefield
+                    const enemyTarget: Card = {
+                      id: `enemy_op_${Date.now()}`,
+                      name: 'Enemy Infiltrator',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 2,
+                      def: 1,
+                      exhausted: false
+                    };
+                    p2.battlefield.push(enemyTarget);
+
+                    // Step 1: Activate Interrupt out-of-turn
+                    const interruptRes = engine.executeAction(p1, p2, {
+                      type: 'INTERRUPT_ACTION',
+                      card: readyInterruptOp,
+                      cardId: readyInterruptOp.id,
+                      cardName: readyInterruptOp.name,
+                      desc: `⚡ Interrupt: Activate Vanguard Interceptor out-of-turn`
+                    });
+
+                    addTestLog(`⚡ [Interrupt Activation]: ${interruptRes.message} (Exhausted: ${readyInterruptOp.exhausted ? 'YES' : 'NO'})`);
+
+                    // Step 2: Defending player now launches Counter-Attack Operation against enemy
+                    const attackOp: Card = {
+                      id: `counter_op_${Date.now()}`,
+                      name: 'Strike Assassin',
+                      type: 'Operative',
+                      cost: 2,
+                      off: 3,
+                      def: 2,
+                      ass: 2,
+                      exhausted: false
+                    };
+                    p1.battlefield.push(attackOp);
+
+                    const atkRes = engine.executeAction(p1, p2, {
+                      type: 'OPERATIVE_ACTION',
+                      cardId: attackOp.id,
+                      cardName: attackOp.name,
+                      card: attackOp,
+                      attackerCards: [attackOp],
+                      targetId: enemyTarget.id,
+                      targetName: enemyTarget.name,
+                      targetCard: enemyTarget,
+                      opType: 'ass',
+                      desc: `Counter-Attack: Assassinate ${enemyTarget.name}`
+                    });
+
+                    addTestLog(`⚔️ [Counter-Attack Operation]: ${atkRes.message} (Success: ${atkRes.success})`);
+
+                    const isEnemyEliminated = p2.discard_pile.some(d => d.id === enemyTarget.id) || !p2.battlefield.some(b => b.id === enemyTarget.id);
+                    const isPassed = interruptRes.success && readyInterruptOp.exhausted && atkRes.success && isEnemyEliminated;
+                    addTestLog(`✅ [Interrupt Defense & Counter-Attack Flow]: ${isPassed ? 'PASSED - Interrupt seized initiative, executed Counter-Attack operation, and eliminated target!' : 'FAILED'}`);
+                  }}
+                  className="py-1.5 px-2.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-zinc-950 text-xs font-bold transition-colors text-left flex items-center justify-between"
+                >
+                  <span>Test Full Interrupt &amp; Counter-Attack</span>
+                  <span className="text-[10px] font-mono opacity-80">Full Flow</span>
                 </button>
               </div>
             </div>

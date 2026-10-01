@@ -24,7 +24,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Pay x',
     category: 'cost',
     syntaxTemplate: 'Pay {x} coins:',
-    description: 'Player must deduct x resources (Spendables) to trigger the ability. Action is disabled if Spendables < x.',
+    description: "Player must deduct x resources (Spendables) to trigger the ability. Action is disabled if Spendables < x. NOTE: Under standard rules, using any special ability exhausts/taps the card (limiting it to once per turn) unless marked as Passive.",
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
@@ -35,7 +35,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Passive',
     category: 'trigger',
     syntaxTemplate: 'Passive:',
-    description: 'Card does not Exhaust when using Special Ability. Can be activated without tapping.',
+    description: 'Card does not need to tap or exhaust to use its special ability. Thus, the Passive ability can be used more than once per turn (as long as conditions/costs are met). All other special abilities exhaust the card, limiting them to once per turn.',
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Passive: Pay 1 coin: Give target friendly operative +1/+1 Tech token.'
@@ -45,7 +45,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Tap',
     category: 'trigger',
     syntaxTemplate: 'Tap:',
-    description: 'Card exhausts (E) when activating this ability. Cannot be used while already exhausted.',
+    description: 'Card exhausts (E) when activating this ability, limiting it to once per turn. Cannot be used while already exhausted.',
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Tap: Give target friendly operative +1 OFF.'
@@ -55,7 +55,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Tap, Pay x',
     category: 'trigger',
     syntaxTemplate: 'Tap, Pay {x} coins:',
-    description: 'Multi-trigger: Card exhausts (E) AND player pays x resources to activate.',
+    description: 'Multi-trigger: Card exhausts (E) AND player pays x resources to activate (limits special ability to once per turn).',
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
@@ -66,7 +66,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Passive, Pay x',
     category: 'trigger',
     syntaxTemplate: 'Passive, Pay {x} coins:',
-    description: 'Multi-trigger: Player pays x resources. Card DOES NOT exhaust.',
+    description: 'Multi-trigger: Player pays x resources. Card DOES NOT exhaust (Passive), allowing the ability to be used more than once per turn as long as player has sufficient resources.',
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
@@ -138,11 +138,22 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     sampleUsage: 'Tap: Give target friendly operative +1/+1 Suit token.'
   },
   {
+    id: 'kw_power_armor_token',
+    keyword: '+x/+x Power Armor token',
+    category: 'token',
+    syntaxTemplate: '+{x}/+{x} Power Armor token',
+    description: 'Token that gives 1 or more points bonus to both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Power Armor token (duplicate tokens cannot be stacked).',
+    isBuiltIn: true,
+    parameterType: 'number',
+    defaultParamValue: 1,
+    sampleUsage: 'Tap: Give target friendly operative +1/+1 Power Armor token.'
+  },
+  {
     id: 'kw_powered_armor_token',
     keyword: '+x/+x Powered armor token',
     category: 'token',
     syntaxTemplate: '+{x}/+{x} Powered armor token',
-    description: 'Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Powered armor token (duplicate tokens cannot be stacked).',
+    description: 'Alias for Power Armor token. Token that buffs both Offense (OFF) and Defense (DEF) by x. Operatives can receive at most 1 Power Armor token (duplicate tokens cannot be stacked).',
     isBuiltIn: true,
     parameterType: 'number',
     defaultParamValue: 1,
@@ -316,7 +327,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Intercept',
     category: 'trigger',
     syntaxTemplate: 'Intercept:',
-    description: "Card with Intercept can be deployed or use its special ability out of turn, when attacked with a card's special ability and with an Operation if applicable.",
+    description: "Card with Intercept can be deployed or use its special ability out of turn when attacked with a card's special ability or Operation. Using an Intercept special ability automatically Exhausts or Taps the card as well, limiting its use to once per turn, unless it also has Passive special ability.",
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Intercept: Fortify defense by +2 DEF against incoming threat or special ability attack.'
@@ -326,7 +337,7 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     keyword: 'Interrupt',
     category: 'trigger',
     syntaxTemplate: 'Interrupt:',
-    description: "A card with an Interrupt can be played anytime, out of player's turn, even when not being attacked.",
+    description: "A card with an Interrupt can be played anytime, out of player's turn, even when not being attacked. Using an Interrupt special ability automatically Exhausts or Taps the card as well, limiting its use to once per turn, unless it also has Passive special ability.",
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Interrupt: Exhaust 1 opponent card in play.'
@@ -404,6 +415,16 @@ export const BUILT_IN_KEYWORDS: KeywordDefinition[] = [
     isBuiltIn: true,
     parameterType: 'none',
     sampleUsage: 'Tap: Target operative gains +1 DEF for 1 turn.'
+  },
+  {
+    id: 'kw_or_choice',
+    keyword: 'or',
+    category: 'modifier',
+    syntaxTemplate: '{Ability A} or {Ability B}',
+    description: 'Player must select which special ability to activate. Example, Tap: Give Operative +2 OFF or +2 DEF for 1 turn.',
+    isBuiltIn: true,
+    parameterType: 'none',
+    sampleUsage: 'Tap: Give Operative +2 OFF or +2 DEF for 1 turn.'
   }
 ];
 

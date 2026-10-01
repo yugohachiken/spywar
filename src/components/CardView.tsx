@@ -157,13 +157,26 @@ export const CardView: React.FC<CardViewProps> = ({
           <span className={`text-[10px] uppercase tracking-wider font-mono border px-1 rounded ${getTypeBadgeColor()}`}>
             {card.type}
           </span>
-          {card.isNamed && <span className="text-[10px] font-mono text-amber-400/90 font-bold">UNIQUE</span>}
+          <div className="flex items-center gap-1">
+            {(card.isInterrupt || card.abilityText?.toLowerCase().includes('interrupt')) && (
+              <span className="text-[9px] font-mono font-bold px-1 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/40" title="Interrupt: Can be activated out-of-turn to stop opponent turn and seize initiative">
+                ⚡ Interrupt
+              </span>
+            )}
+            {(card.isIntercept || card.abilityText?.toLowerCase().includes('intercept')) && !card.isInterrupt && (
+              <span className="text-[9px] font-mono font-bold px-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" title="Intercept: Reaction defense">
+                🛡️ Intercept
+              </span>
+            )}
+            {card.isNamed && <span className="text-[10px] font-mono text-amber-400/90 font-bold">UNIQUE</span>}
+          </div>
         </div>
       </div>
 
       {/* Operative Combat Stats / Location Capacity */}
       {card.type === 'Operative' && (() => {
-        const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+        const armorTokens = Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0);
+        const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + armorTokens + (card.powerSuitTokens || 0);
         const totalOffBonus = (card.tempOffenseBuff || 0) + (card.operationOffenseBuff || 0) + tokenBuff;
         const totalDefBonus = (card.tempDefenseBuff || 0) + (card.operationDefenseBuff || 0) + tokenBuff;
         return (
@@ -229,9 +242,9 @@ export const CardView: React.FC<CardViewProps> = ({
               🥋 Suit: +{card.suitTokens}/+{card.suitTokens}
             </span>
           )}
-          {(card.poweredArmorTokens || 0) > 0 && (
+          {Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0) > 0 && (
             <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/50">
-              🛡️ Armor: +{card.poweredArmorTokens}/+{card.poweredArmorTokens}
+              🛡️ Power Armor: +{Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0)}/+{Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0)}
             </span>
           )}
           {(card.powerSuitTokens || 0) > 0 && (

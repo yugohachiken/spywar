@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap, Target, Sword } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap, Target, Sword, Plus, Minus } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { CombatPlanner, CombatOperationType } from './CombatPlanner';
 import { InlineDefensePanel } from './InlineDefensePanel';
@@ -23,6 +23,13 @@ interface PendingDefenseState {
   readyOps: Card[];
   selectedDefenderIds: string[];
   isSpecialAbilityAttack?: boolean;
+}
+
+interface InterruptWindowState {
+  defender: Player;
+  attacker: Player;
+  sourceCard: Card;
+  suspendedDefense?: PendingDefenseState | null;
 }
 
 interface PendingTargetSelectionState {
@@ -53,6 +60,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const [aiSpeed, setAiSpeed] = useState<number>(450); // ms delay between AI actions
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingDefense, setPendingDefense] = useState<PendingDefenseState | null>(null);
+  const [interruptWindowState, setInterruptWindowState] = useState<InterruptWindowState | null>(null);
   const autoAiTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Online Multiplayer State
@@ -101,6 +109,93 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const legalActions = isMyTurn
     ? [...baseLegalActions, ...interruptActions.filter(ia => !baseLegalActions.some(ba => ba.cardId === ia.cardId && ba.desc === ia.desc))]
     : [];
+
+  const offTurnSpendable = engine.getTotalSpendableCoins(bottomPlayer);
+
+  // Discover all cards with Interrupt special ability eligible for activation when player is on defense / off-turn
+  // Requirements:
+  // 1. In-play cards (battlefield/affiliation) must be in Ready condition (not exhausted) unless Passive
+  // 2. Player must have enough spendable resources should the Interrupt have an activation cost
+  // 3. Hand cards must have sufficient spendable coins to deploy/play
+  const offTurnInterruptCandidates = useMemo(() => {
+    const list: {
+      card: Card;
+      location: 'battlefield' | 'affiliation' | 'hand';
+      cost: number;
+      hasEnoughCoins: boolean;
+      isReady: boolean;
+      isPassive: boolean;
+      parsedAbility: any;
+      action?: Action;
+    }[] = [];
+
+    // Check Affiliation for Interrupt
+    if (bottomPlayer.affiliation) {
+      const aff = bottomPlayer.affiliation;
+      const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
+      const isInterrupt = aff.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || aff.abilityText?.toLowerCase().includes('interrupt');
+      if (isInterrupt) {
+        const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+        const isReady = !aff.exhausted || isPassive;
+        const cost = parsed?.costCoins || 0;
+        const cardAct = interruptActions.find(a => a.cardId === aff.id);
+        list.push({
+          card: aff,
+          location: 'affiliation',
+          cost,
+          hasEnoughCoins: offTurnSpendable >= cost,
+          isReady,
+          isPassive,
+          parsedAbility: parsed,
+          action: cardAct
+        });
+      }
+    }
+
+    // Check Battlefield for Interrupt (Must be in Ready condition unless Passive)
+    for (const c of bottomPlayer.battlefield) {
+      const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+      const isInterrupt = c.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || c.abilityText?.toLowerCase().includes('interrupt');
+      if (isInterrupt) {
+        const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+        const isReady = !c.exhausted || isPassive;
+        const cost = parsed?.costCoins || 0;
+        const cardAct = interruptActions.find(a => a.cardId === c.id);
+        list.push({
+          card: c,
+          location: 'battlefield',
+          cost,
+          hasEnoughCoins: offTurnSpendable >= cost,
+          isReady,
+          isPassive,
+          parsedAbility: parsed,
+          action: cardAct
+        });
+      }
+    }
+
+    // Check Hand for Interrupt
+    for (const c of bottomPlayer.hand) {
+      const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+      const isInterrupt = c.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || c.abilityText?.toLowerCase().includes('interrupt');
+      if (isInterrupt) {
+        const cost = (c.cost || 0) + (parsed?.costCoins || 0);
+        const cardAct = interruptActions.find(a => a.cardId === c.id);
+        list.push({
+          card: c,
+          location: 'hand',
+          cost,
+          hasEnoughCoins: offTurnSpendable >= cost,
+          isReady: true,
+          isPassive: parsed?.isPassive || false,
+          parsedAbility: parsed,
+          action: cardAct
+        });
+      }
+    }
+
+    return list;
+  }, [bottomPlayer.affiliation, bottomPlayer.battlefield, bottomPlayer.hand, offTurnSpendable, interruptActions]);
 
   const mctsAgent = useRef(new ISMCTSAgent(engine.config.rounds * 10)).current;
 
@@ -243,7 +338,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   // Auto-play watchdog effect
   useEffect(() => {
-    if (autoAi && !engine.gameOver && !aiThinking) {
+    if (autoAi && !engine.gameOver && !aiThinking && !pendingDefense && !interruptWindowState) {
       const currentActive = engine.getActivePlayer();
       // In Human vs AI, auto-play only executes when active player is AI (P2)!
       // In AI vs AI, auto-play executes for both P1 and P2
@@ -257,7 +352,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     return () => {
       if (autoAiTimerRef.current) clearTimeout(autoAiTimerRef.current);
     };
-  }, [autoAi, engine.activePlayerIndex, engine.actionCounter, engine.gameOver, aiThinking, aiSpeed]);
+  }, [autoAi, engine.activePlayerIndex, engine.actionCounter, engine.gameOver, aiThinking, aiSpeed, pendingDefense, interruptWindowState]);
 
   const isAttackAction = (action: Action): boolean => {
     if (action.type === 'DAN_WEAK_SACRIFICE') return true;
@@ -285,19 +380,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       return c.isIntercept || c.isInterrupt || c.discardAfterDefending || parsed?.isIntercept || parsed?.isInterrupt;
     })) return true;
 
-    // 2. Affiliation with intercept/reaction that is unexhausted
-    if (defender.affiliation && !defender.affiliation.exhausted) {
+    // 2. Affiliation with intercept/reaction
+    if (defender.affiliation) {
       const aff = defender.affiliation;
       const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
-      if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
-        return true;
+      const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+      if (!aff.exhausted || isPassive) {
+        if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+          return true;
+        }
       }
     }
 
     // 3. In-play cards with intercept/reaction
     for (const c of defender.battlefield) {
-      if (!c.exhausted) {
-        const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+      const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+      const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+      if (!c.exhausted || isPassive) {
         if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
           return true;
         }
@@ -457,7 +556,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   };
 
   const executeAiStep = () => {
-    if (engine.gameOver || pendingDefense) return;
+    if (engine.gameOver || pendingDefense || interruptWindowState) return;
     const currentActive = engine.getActivePlayer();
     const currentOpp = engine.getOpponent();
 
@@ -470,7 +569,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         if (isAttackAction(bestAction) && !currentOpp.isAI) {
           const attackInfo = getIncomingAttackInfo(bestAction);
           if (canDefenderReactOrDefend(currentOpp, attackInfo.isSpecialAbilityAttack)) {
-            setAutoAi(false);
             const readyOps = currentOpp.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
             const recommended = engine.selectAiDefenders(currentOpp, attackInfo.threatType, attackInfo.attackPower);
             setPendingDefense({
@@ -501,6 +599,82 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     setSelectedAttackers([]);
     setSelectedCombatOp(null);
     setSelectedCombatTarget(null);
+  };
+
+  const handleActivateInterruptFromDefense = (card: Card, action?: Action) => {
+    // Immediately stop opponent's turn and cancel any auto-AI step
+    if (autoAiTimerRef.current) {
+      clearTimeout(autoAiTimerRef.current);
+      autoAiTimerRef.current = null;
+    }
+    setAiThinking(false);
+
+    const suspended = pendingDefense ? { ...pendingDefense } : null;
+    const defender = suspended ? suspended.defender : bottomPlayer;
+    const attacker = suspended ? suspended.attacker : topPlayer;
+
+    // Resolve the Interrupt action in engine
+    const act: Action = action || {
+      type: 'INTERRUPT_ACTION',
+      cardId: card.id,
+      cardName: card.name,
+      card,
+      desc: `⚡ Interrupt Seizure: ${card.name}`
+    };
+
+    engine.executeAction(defender, attacker, act);
+
+    // Save suspended defense state and activate Interrupt window
+    setPendingDefense(null);
+    setInterruptWindowState({
+      defender,
+      attacker,
+      sourceCard: card,
+      suspendedDefense: suspended
+    });
+
+    clearCombatSelection();
+
+    const haltDesc = suspended
+      ? `${attacker.name}'s ${suspended.threatName} is immediately STOPPED.`
+      : `${attacker.name}'s turn is immediately STOPPED.`;
+
+    engine.log(
+      defender.pid,
+      'INTERRUPT-SEIZE',
+      `⚡⚡ INTERRUPT ACTIVATED! ${defender.name} used ${card.name} out-of-turn! ${haltDesc} ${defender.name} has seized initiative to take actions and launch a Counter-Attack Operation!`
+    );
+
+    onRefresh();
+  };
+
+  const handleReturnInitiativeFromInterrupt = () => {
+    if (!interruptWindowState) return;
+    const suspended = interruptWindowState.suspendedDefense;
+    if (suspended) {
+      engine.log(
+        interruptWindowState.defender.pid,
+        'INTERRUPT-RETURN',
+        `⚡ Interrupt window resolved. Initiative returns back to ${interruptWindowState.attacker.name}. Resuming defense against ${suspended.threatName}.`
+      );
+      const updatedReady = interruptWindowState.defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
+      const nextPending: PendingDefenseState = {
+        ...suspended,
+        readyOps: updatedReady,
+        selectedDefenderIds: suspended.selectedDefenderIds.filter(id => updatedReady.some(o => o.id === id))
+      };
+      setPendingDefense(nextPending);
+    } else {
+      engine.log(
+        interruptWindowState.defender.pid,
+        'INTERRUPT-RETURN',
+        `⚡ Interrupt window resolved. Initiative returns back to ${interruptWindowState.attacker.name}.`
+      );
+      setPendingDefense(null);
+    }
+    setInterruptWindowState(null);
+    clearCombatSelection();
+    onRefresh();
   };
 
   const handleDeployOperativeCrew = (card: Card) => {
@@ -594,6 +768,58 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const handleAction = (action: Action) => {
     if (pendingDefense) return;
     setPendingTargetSelection(null);
+
+    if (interruptWindowState) {
+      // Defending player is performing an action (such as launching a Counter-Attack Operation) during the Interrupt Window!
+      engine.executeAction(interruptWindowState.defender, interruptWindowState.attacker, action);
+
+      // Check if original attacker from suspended attack was eliminated during the counter-attack:
+      const suspended = interruptWindowState.suspendedDefense;
+      if (suspended) {
+        const originalAttackerCards = suspended.action.attackerCards || (suspended.action.card ? [suspended.action.card] : []);
+        const wasOriginalAttackerEliminated = originalAttackerCards.length > 0 && originalAttackerCards.some(a =>
+          interruptWindowState.attacker.discard_pile.some(d => d.id === a.id) ||
+          !interruptWindowState.attacker.battlefield.some(b => b.id === a.id)
+        );
+
+        if (wasOriginalAttackerEliminated) {
+          engine.log(
+            interruptWindowState.defender.pid,
+            'THWART-INTERRUPT',
+            `🎯 ATTACK CANCELLED! The original attacker [${suspended.attackerNames}] was ELIMINATED during ${interruptWindowState.defender.name}'s Interrupt counter-attack! Initiative returns to ${interruptWindowState.attacker.name}.`
+          );
+          setPendingDefense(null);
+          setInterruptWindowState(null);
+        } else {
+          // Return initiative back to original attacking player and resume suspended defense!
+          engine.log(
+            interruptWindowState.defender.pid,
+            'INTERRUPT-RETURN',
+            `⚡ Interrupt action resolved. Initiative returns back to ${interruptWindowState.attacker.name}. Resuming defense against ${suspended.threatName}.`
+          );
+          const updatedReady = interruptWindowState.defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
+          const nextPending: PendingDefenseState = {
+            ...suspended,
+            readyOps: updatedReady,
+            selectedDefenderIds: suspended.selectedDefenderIds.filter(id => updatedReady.some(o => o.id === id))
+          };
+          setPendingDefense(nextPending);
+          setInterruptWindowState(null);
+        }
+      } else {
+        engine.log(
+          interruptWindowState.defender.pid,
+          'INTERRUPT-RETURN',
+          `⚡ Interrupt counter-action resolved. Initiative returns back to ${interruptWindowState.attacker.name}.`
+        );
+        setInterruptWindowState(null);
+      }
+
+      setSelectedCard(null);
+      clearCombatSelection();
+      onRefresh();
+      return;
+    }
 
     if (action.type === 'INTERRUPT_ACTION') {
       engine.executeAction(myPlayer, otherPlayer, action);
@@ -910,23 +1136,71 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
         {/* CONTROLS (STEP AI, AUTOPLAY, RESET) */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* SPEED CONTROL (Shown when Auto-play is active or in AI vs AI mode) */}
-          {(autoAi || gameMode === 'ai_vs_ai') && (
-            <div className="flex items-center gap-1 bg-zinc-950 px-2 py-1 rounded-lg border border-zinc-800 text-[11px] text-zinc-400 font-mono">
-              <span>Speed:</span>
-              {[
-                { label: '1x', ms: 550 },
-                { label: '2x', ms: 250 },
-                { label: 'Fast', ms: 100 },
-              ].map(s => (
-                <button
-                  key={s.label}
-                  onClick={() => setAiSpeed(s.ms)}
-                  className={`px-1.5 py-0.5 rounded transition-colors ${aiSpeed === s.ms ? 'bg-zinc-700 text-amber-300 font-bold' : 'hover:text-zinc-200'}`}
-                >
-                  {s.label}
-                </button>
-              ))}
+          {/* AI SPEED CONTROL WITH +/- BUTTONS (Can slow to a crawl or speed up) */}
+          {(gameMode === 'human_vs_ai' || gameMode === 'ai_vs_ai' || autoAi) && (
+            <div className="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px] font-mono shadow-sm">
+              <span className="text-zinc-400 font-semibold">AI Speed:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  // Slower AI speed = increase delay up to ultra crawl (20s)
+                  setAiSpeed(prev => {
+                    if (prev < 300) return prev + 150;
+                    if (prev < 800) return prev + 250;
+                    if (prev < 2000) return prev + 500;
+                    if (prev < 5000) return prev + 1000;
+                    if (prev < 10000) return prev + 2500;
+                    return Math.min(20000, prev + 5000);
+                  });
+                }}
+                className="px-2 py-0.5 flex items-center gap-1 rounded bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 hover:text-white font-bold transition-all cursor-pointer border border-zinc-700 hover:border-amber-500/50"
+                title="Slower (-) — Increase delay between AI actions (slow to a crawl, up to 20s)"
+              >
+                <Minus className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Slower</span>
+              </button>
+
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${
+                  aiSpeed >= 10000
+                    ? 'bg-amber-950/90 text-amber-300 border-amber-500 shadow-sm animate-pulse'
+                    : aiSpeed >= 3000
+                    ? 'bg-amber-950/70 text-amber-300 border-amber-600/60'
+                    : aiSpeed >= 1500
+                    ? 'bg-blue-950/70 text-blue-300 border-blue-600/50'
+                    : aiSpeed >= 600
+                    ? 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                    : 'bg-emerald-950/70 text-emerald-300 border-emerald-600/50'
+                }`}
+                title={`Delay between AI actions: ${aiSpeed}ms (${(aiSpeed / 1000).toFixed(2)}s). Use +/- buttons to adjust.`}
+              >
+                {aiSpeed >= 10000 ? `🐌 Ultra Crawl (${(aiSpeed / 1000).toFixed(1)}s)` :
+                 aiSpeed >= 3000 ? `🐢 Crawl (${(aiSpeed / 1000).toFixed(1)}s)` :
+                 aiSpeed >= 1500 ? `🚶 Slow (${(aiSpeed / 1000).toFixed(1)}s)` :
+                 aiSpeed >= 600 ? `⚖️ Normal (${(aiSpeed / 1000).toFixed(1)}s)` :
+                 aiSpeed <= 200 ? `⚡ Fast (${aiSpeed}ms)` :
+                 `${(aiSpeed / 1000).toFixed(2)}s`}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  // Faster AI speed = decrease delay down to 50ms
+                  setAiSpeed(prev => {
+                    if (prev > 10000) return prev - 5000;
+                    if (prev > 5000) return prev - 2500;
+                    if (prev > 2000) return prev - 1000;
+                    if (prev > 800) return prev - 500;
+                    if (prev > 300) return prev - 250;
+                    return Math.max(50, prev - 150);
+                  });
+                }}
+                className="px-2 py-0.5 flex items-center gap-1 rounded bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 hover:text-white font-bold transition-all cursor-pointer border border-zinc-700 hover:border-emerald-500/50"
+                title="Faster (+) — Decrease delay between AI actions (down to 50ms)"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Faster</span>
+              </button>
             </div>
           )}
 
@@ -1038,7 +1312,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         {/* AI Action Status Banner */}
         {activePlayer.isAI && !engine.gameOver && (
           <div className="flex items-center gap-2">
-            {autoAi ? (
+            {pendingDefense ? (
+              <span className="text-amber-300 text-[11px] font-mono flex items-center gap-1.5 animate-pulse">
+                <Shield className="w-3.5 h-3.5 text-amber-400" />
+                Incoming {pendingDefense.threatName} attack! Choose your defense response below...
+              </span>
+            ) : autoAi ? (
               <span className="text-indigo-300 text-[11px] font-mono flex items-center gap-1.5 animate-pulse">
                 <Bot className="w-3.5 h-3.5 text-indigo-400" />
                 AI ({activePlayer.pid}) is executing turn...
@@ -1330,6 +1609,77 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         </div>
       </div>
 
+      {/* OFF-TURN INTERRUPT SPECIAL ABILITIES BAR (DEFENDING/OFF-TURN ACTIVATION) */}
+      {!isMyTurn && !pendingDefense && !interruptWindowState && offTurnInterruptCandidates.length > 0 && (
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-yellow-950/80 via-amber-950/60 to-zinc-950 border-2 border-yellow-500 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-yellow-500/30 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/50">
+                <Zap className="w-4 h-4 fill-current animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-yellow-300 flex items-center gap-1.5">
+                  <span>⚡ OFF-TURN INTERRUPT: STOP OPPONENT'S TURN &amp; SEIZE INITIATIVE</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-yellow-400/20 text-yellow-300 font-mono border border-yellow-500/40 uppercase">
+                    Defense / Off-Turn
+                  </span>
+                </h4>
+                <p className="text-[10px] text-zinc-300 font-mono">
+                  {activePlayer.name} is taking their turn. You have cards with <strong>Interrupt special ability in Ready condition</strong>! Activating immediately stops their turn so you can launch a Counter-Attack Operation!
+                </p>
+              </div>
+            </div>
+
+            <span className="text-[11px] font-mono text-zinc-300 bg-black/60 px-2.5 py-1 rounded-lg border border-zinc-800">
+              Spendable: <strong className="text-amber-300">{offTurnSpendable} Coins</strong>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {offTurnInterruptCandidates.map(cand => {
+              const canActivate = cand.isReady && cand.hasEnoughCoins;
+              return (
+                <div
+                  key={`${cand.location}_${cand.card.id}`}
+                  className={`p-2.5 rounded-lg border flex items-center justify-between gap-2.5 font-mono text-xs transition-all ${
+                    canActivate
+                      ? 'bg-zinc-900/90 border-yellow-500/60 shadow-md'
+                      : 'bg-zinc-900/40 border-zinc-800/80 text-zinc-500 opacity-60'
+                  }`}
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-zinc-100 truncate">{cand.card.name}</span>
+                      <span className="text-[9px] px-1 rounded bg-zinc-800 text-zinc-300 uppercase shrink-0">
+                        {cand.location === 'affiliation' ? 'Affiliation' : cand.location === 'battlefield' ? (cand.isPassive ? 'Passive' : 'Ready') : 'Hand'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-400 truncate">
+                      {cand.cost > 0 ? `Cost: ${cand.cost} Coins` : 'Cost: Free'} {!cand.isReady && '• Exhausted (Not Ready)'}
+                    </div>
+                  </div>
+
+                  {canActivate ? (
+                    <button
+                      type="button"
+                      onClick={() => handleActivateInterruptFromDefense(cand.card, cand.action)}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-400 hover:to-amber-500 active:scale-95 text-black font-extrabold text-[11px] shrink-0 shadow-lg flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>Seize Initiative</span>
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-red-400 font-bold shrink-0">
+                      {!cand.isReady ? 'Must be Ready' : `Need ${cand.cost} Coins`}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* PLAYER AREA (BOTTOM PLAYER - YOU) */}
       <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-700/80 space-y-3">
         <div className="flex items-center justify-between">
@@ -1369,7 +1719,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           <div className="text-[11px] font-mono text-zinc-400 mb-1 flex items-center justify-between">
             <span>Battlefield &amp; Affiliation in Play:</span>
             <span className="text-[10px] text-amber-400/90 font-mono">
-              Tip: Hold Shift + Click Ready Operatives to assemble a strike team
+              Tip: Hold Shift + Click Ready Operatives to assemble an attack team
             </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto py-1">
@@ -1428,11 +1778,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const isTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
               const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
 
+              const isOffTurnDef = !isMyTurn && !pendingDefense && !interruptWindowState;
+              const offTurnCand = isOffTurnDef ? offTurnInterruptCandidates.find(c => c.card.id === card.id) : null;
+              const isOffTurnInterruptEligible = !!offTurnCand && offTurnCand.isReady && offTurnCand.hasEnoughCoins;
+
               let role: 'attacker' | 'defender' | 'target' | 'buff_target' | undefined = undefined;
               let badge: string | undefined = undefined;
               if (isTargetCandidate) {
                 role = 'buff_target';
                 badge = candidateAct?.disabled ? 'Cannot Receive' : '🎯 Beneficiary';
+              } else if (isOffTurnInterruptEligible) {
+                role = 'attacker';
+                badge = '⚡ Interrupt Ready';
               } else if (isAttacker) {
                 role = 'attacker';
                 badge = 'Attacker';
@@ -1448,10 +1805,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
-                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || isTargetCandidate}
+                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || isTargetCandidate || isOffTurnInterruptEligible}
                   selectionRole={role}
                   selectionBadge={badge}
                   onClick={(e) => {
+                    // 0. If in off-turn defense mode and this card is eligible to trigger Interrupt:
+                    if (isOffTurnInterruptEligible && offTurnCand) {
+                      handleActivateInterruptFromDefense(card, offTurnCand.action);
+                      return;
+                    }
+
                     // If in targeting mode for an operative benefit, direct click selects this operative
                     if (pendingTargetSelection) {
                       const match = pendingTargetSelection.actions.find(a => a.targetId === card.id);
@@ -1484,9 +1847,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                       return;
                     }
 
-                    // 2. If Shift is pressed or card is already an attacker in multi-select mode:
+                    // 2. If Shift is pressed or card is already an attacker in multi-select mode, or in Interrupt Window:
                     const isShift = e?.shiftKey;
-                    if (isShift || isAttacker || selectedAttackers.length > 0) {
+                    if (isShift || isAttacker || selectedAttackers.length > 0 || interruptWindowState) {
                       if (card.type === 'Operative') {
                         if (card.exhausted) {
                           // Exhausted card cannot join attack team
@@ -1597,8 +1960,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const effCost = engine.getCardDeployCost(bottomPlayer, card);
               const isAffordable = effCost <= engine.getTotalSpendableCoins(bottomPlayer);
 
-              const isPlayable = !mustDiscardExcess && (!isOnline || isMyTurn) && (
-                isCardTypeMatch || (!hasPendingFree && isAffordable)
+              const isOffTurnDef = !isMyTurn && !pendingDefense && !interruptWindowState;
+              const offTurnCand = isOffTurnDef ? offTurnInterruptCandidates.find(c => c.card.id === card.id) : null;
+              const isOffTurnInterruptEligible = !!offTurnCand && offTurnCand.hasEnoughCoins;
+
+              const isPlayable = !mustDiscardExcess && (
+                ((!isOnline || isMyTurn) && (isCardTypeMatch || (!hasPendingFree && isAffordable))) ||
+                isOffTurnInterruptEligible
               );
 
               return (
@@ -1606,8 +1974,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                   key={card.id}
                   card={card}
                   isPlayable={isPlayable}
-                  playLabel={isCardTypeMatch ? 'Deploy (FREE)' : effCost < card.cost ? `Deploy (${card.cost} -> ${effCost})` : `Deploy (${card.cost})`}
+                  playLabel={
+                    isOffTurnInterruptEligible
+                      ? `⚡ Interrupt (${offTurnCand!.cost}c)`
+                      : isCardTypeMatch
+                      ? 'Deploy (FREE)'
+                      : effCost < card.cost
+                      ? `Deploy (${card.cost} -> ${effCost})`
+                      : `Deploy (${card.cost})`
+                  }
                   onPlay={() => {
+                    if (isOffTurnInterruptEligible && offTurnCand) {
+                      handleActivateInterruptFromDefense(card, offTurnCand.action);
+                      return;
+                    }
                     if (isCardTypeMatch) {
                       const freeAct = legalActions.find(a => a.type === 'DEPLOY_FREE_CARD' && a.cardId === card.id) || {
                         type: 'DEPLOY_FREE_CARD',
@@ -1734,12 +2114,81 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         </div>
       </div>
 
+      {/* INTERRUPT SPECIAL ABILITY WINDOW (SEIZED INITIATIVE & COUNTER-ATTACK) */}
+      {interruptWindowState && (
+        <div className="p-4 rounded-xl bg-gradient-to-r from-yellow-950/90 via-amber-950/80 to-zinc-950 border-2 border-yellow-500 shadow-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-yellow-500/40 pb-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/50">
+                <Zap className="w-5 h-5 fill-current animate-bounce" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-yellow-300">
+                    ⚡ INTERRUPT SEIZURE: {interruptWindowState.defender.name.toUpperCase()} HAS INITIATIVE!
+                  </h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-yellow-400/20 text-yellow-300 border border-yellow-500/40 uppercase">
+                    Off-Turn Interrupt Window
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300 font-mono">
+                  {interruptWindowState.suspendedDefense ? (
+                    <>
+                      {interruptWindowState.attacker.name}'s attack with <strong className="text-red-300">{interruptWindowState.suspendedDefense.attackerNames}</strong> has been <strong className="text-yellow-400">HALTED &amp; SUSPENDED</strong> via <strong className="text-yellow-300">{interruptWindowState.sourceCard.name}</strong>!
+                    </>
+                  ) : (
+                    <>
+                      {interruptWindowState.attacker.name}'s turn has been <strong className="text-yellow-400">HALTED &amp; STOPPED</strong> via <strong className="text-yellow-300">{interruptWindowState.sourceCard.name}</strong>!
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleReturnInitiativeFromInterrupt}
+                className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-white font-bold text-xs border border-zinc-600 transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <span>↩️ Return Initiative to {interruptWindowState.attacker.name}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-black/60 border border-yellow-500/30 text-xs font-mono space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-zinc-200">
+                👉 Select your ready Operatives below to <strong>launch a Counter-Attack Operation</strong> against {interruptWindowState.attacker.name}, or resolve additional abilities.
+              </span>
+              <span className="text-[11px] text-yellow-400">
+                Ready Operatives: {interruptWindowState.defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted).length}
+              </span>
+            </div>
+
+            {selectedAttackers.length === 0 ? (
+              <div className="p-2 rounded bg-yellow-950/40 border border-yellow-600/30 text-[11px] text-yellow-200 flex items-center justify-between">
+                <span>Click any friendly Operative to assemble a Counter-Attack team!</span>
+                <span className="text-[10px] text-zinc-400">Combat Planner will appear below</span>
+              </div>
+            ) : (
+              <div className="p-2 rounded bg-emerald-950/60 border border-emerald-500/40 text-[11px] text-emerald-300 flex items-center justify-between">
+                <span>
+                  ⚔️ Counter-Attack Team Assembled: <strong>{selectedAttackers.map(a => a.name).join(' + ')}</strong>
+                </span>
+                <span className="text-[10px] text-emerald-400">Configure Operation in Combat Planner below!</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* COMBAT PLANNER INTERFACE (MULTI-SELECT OPERATIVES) */}
       {selectedAttackers.length > 0 && (
         <CombatPlanner
           engine={engine}
-          attackerPlayer={bottomPlayer}
-          defenderPlayer={topPlayer}
+          attackerPlayer={interruptWindowState ? interruptWindowState.defender : bottomPlayer}
+          defenderPlayer={interruptWindowState ? interruptWindowState.attacker : topPlayer}
           selectedAttackers={selectedAttackers}
           selectedTarget={selectedCombatTarget}
           selectedOperation={selectedCombatOp}
@@ -1748,7 +2197,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           onClearAttackers={clearCombatSelection}
           onExecuteAttack={handleExecuteMultiAttack}
           onDeployOperativeCrew={handleDeployOperativeCrew}
-          disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing')}
+          disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing') && !interruptWindowState}
         />
       )}
 
@@ -1780,6 +2229,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           onDeclineDefense={() => handleConfirmDefense([])}
           isOnlinePeerWaiting={isOnline && pendingDefense.defender.pid !== myPid}
           isSpecialAbilityAttack={pendingDefense.isSpecialAbilityAttack}
+          onActivateInterrupt={handleActivateInterruptFromDefense}
         />
       )}
 
@@ -1858,6 +2308,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                           Tech +{targetCard.techTokens}
                         </span>
                       ) : null}
+                      {Math.max(targetCard.powerArmorTokens || 0, targetCard.poweredArmorTokens || 0) > 0 ? (
+                        <span className="text-emerald-300 text-[10px] bg-emerald-950/80 border border-emerald-500/40 px-1 rounded">
+                          Power Armor +{Math.max(targetCard.powerArmorTokens || 0, targetCard.poweredArmorTokens || 0)}
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
@@ -1900,6 +2355,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                            act.subChoice === 'assemble_strike' ? 'Give +2 Offense' :
                            act.subChoice === 'assemble_defense' ? 'Give +2 Defense' :
                            act.subChoice === 'buff_tech_token' ? `Select ${targetCard.name} (+1/+1 Tech)` :
+                           act.desc.includes('[') && act.desc.includes(']') ? `Select: ${act.desc.substring(act.desc.indexOf('[') + 1, act.desc.lastIndexOf(']'))}` :
                            `Select ${targetCard.name}`}
                         </span>
                         <ChevronRight className="w-3.5 h-3.5" />

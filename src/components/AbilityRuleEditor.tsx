@@ -70,7 +70,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   // Visual Builder State
   const [builderTrigger, setBuilderTrigger] = useState<'tap' | 'passive' | 'tap_pay' | 'passive_pay' | 'sacrifice' | 'deploy' | 'reaction_defense' | 'intercept' | 'interrupt'>('tap');
   const [builderTarget, setBuilderTarget] = useState<AbilityTargetType>('friendly_op');
-  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust' | 'gain_resource' | 'cost_discount'>('buff');
+  const [builderEffectCategory, setBuilderEffectCategory] = useState<'buff' | 'tech_token' | 'power_armor_token' | 'skill' | 'draw' | 'siphon' | 'discard' | 'spawn' | 'defense' | 'deploy' | 'exhaust' | 'gain_resource' | 'cost_discount'>('buff');
   const [gainResourceType, setGainResourceType] = useState<'fixed' | 'discard_cost'>('fixed');
   const [gainResourceAmount, setGainResourceAmount] = useState<number>(2);
   const [discountCardType, setDiscountCardType] = useState<'Operative' | 'Location' | 'Support' | 'any'>('Operative');
@@ -83,6 +83,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
   const [statType, setStatType] = useState<'off' | 'def' | 'both_choice'>('both_choice');
   const [statAmount, setStatAmount] = useState<number>(1);
   const [techTokenAmount, setTechTokenAmount] = useState<number>(1);
+  const [powerArmorTokenAmount, setPowerArmorTokenAmount] = useState<number>(1);
   const [skillTokenChoice, setSkillTokenChoice] = useState<'any' | 'ass' | 'raid' | 'sub'>('any');
   const [drawAmount, setDrawAmount] = useState<number>(1);
   const [siphonAmount, setSiphonAmount] = useState<number>(2);
@@ -144,6 +145,14 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
         stat: 'both',
         amount: techTokenAmount,
         rawPhrase: `+${techTokenAmount}/+${techTokenAmount} Tech token`
+      });
+    } else if (builderEffectCategory === 'power_armor_token') {
+      effects.push({
+        type: 'grant_token',
+        tokenType: 'power_armor',
+        stat: 'both',
+        amount: powerArmorTokenAmount,
+        rawPhrase: `+${powerArmorTokenAmount}/+${powerArmorTokenAmount} Power Armor token`
       });
     } else if (builderEffectCategory === 'skill') {
       if (skillTokenChoice === 'any') {
@@ -286,7 +295,15 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     const logs: string[] = [];
     logs.push(`🚀 Simulating Action Execution: [${parsed.summary}]`);
 
-    // 1. Check & Pay Resource Cost ("Pay x")
+    // 1. Check card state (Already Exhausted check)
+    const isPassive = parsed.isPassive || parsed.trigger === 'passive';
+    if (sandboxCardExhausted && !isPassive) {
+      logs.push(`❌ ACTIVATION FAILED: Card is Exhausted (E). Special abilities can only be used once per turn unless marked Passive.`);
+      setSandboxLog(logs);
+      return;
+    }
+
+    // 2. Check & Pay Resource Cost ("Pay x")
     let spendables = sandboxPlayerSpendables;
     if (parsed.costCoins && parsed.costCoins > 0) {
       if (spendables < parsed.costCoins) {
@@ -298,17 +315,22 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
       logs.push(`🪙 Resource Cost Paid: Deducted ${parsed.costCoins} Spendable coin(s) (Remaining spendables: ${spendables}).`);
     }
 
-    // 2. Trigger exhaustion vs Passive
+    // 3. Trigger exhaustion vs Passive (Rule Clarification: All abilities exhaust/tap unless marked Passive, including Intercept & Interrupt)
     let isExhausted = sandboxCardExhausted;
-    if (parsed.isPassive || parsed.trigger === 'passive') {
-      logs.push(`⚙️ Passive Ability Triggered: Card DOES NOT exhaust and remains Ready (R)!`);
-    } else if (parsed.requiresTap || parsed.trigger === 'tap') {
-      isExhausted = true;
-      logs.push(`⚡ Cost Paid: Card exhausted (E).`);
+    if (isPassive) {
+      logs.push(`⚙️ Passive Ability Triggered: Card DOES NOT exhaust and remains Ready (R)! Can be activated multiple times per turn.`);
     } else if (parsed.trigger === 'sacrifice' || parsed.requiresSacrifice) {
       logs.push(`🔥 Cost Paid: Card moved to Discard Pile (Sacrifice).`);
-    } else if (parsed.trigger === 'reaction_defense') {
-      logs.push(`🛡️ Cost Paid: Played as instant out-of-turn defensive reaction.`);
+    } else {
+      isExhausted = true;
+      setSandboxCardExhausted(true);
+      if (parsed.isIntercept || parsed.trigger === 'intercept' || parsed.trigger === 'reaction_defense') {
+        logs.push(`🛡️ Cost Paid: Card exhausted (E) after using Intercept special ability (limits use to once per turn unless Passive).`);
+      } else if (parsed.isInterrupt || parsed.trigger === 'interrupt') {
+        logs.push(`⚡ Cost Paid: Card exhausted (E) after using Interrupt special ability (limits use to once per turn unless Passive).`);
+      } else {
+        logs.push(`⚡ Cost Paid: Card exhausted (E). Limits special ability to once per turn.`);
+      }
     }
 
     // 3. Effects
@@ -318,7 +340,13 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
     let currentBuff = { ...sandboxOpBuff };
 
     for (const eff of parsed.effects) {
-      if (eff.type === 'grant_token' && (eff.tokenType === 'tech' || eff.stat === 'both')) {
+      if (eff.type === 'grant_token' && (eff.tokenType === 'power_armor' || eff.tokenType === 'powered_armor')) {
+        const amt = eff.amount || 1;
+        currentBuff.off += amt;
+        currentBuff.def += amt;
+        currentBuff.tokens.push(`+${amt}/+${amt} Power Armor`);
+        logs.push(`🛡️ Granted +${amt}/+${amt} Power Armor Token! Friendly Operative OFF: ${currentBuff.off} / DEF: ${currentBuff.def} (+${amt} OFF, +${amt} DEF bonus).`);
+      } else if (eff.type === 'grant_token' && (eff.tokenType === 'tech' || eff.stat === 'both')) {
         const amt = eff.amount || 1;
         currentBuff.tech += amt;
         currentBuff.off += amt;
@@ -568,10 +596,17 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleInsertKeyword(`Give target friendly operative +1 OFF or +1 DEF.`)}
-                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-mono transition-colors"
+                  onClick={() => handleInsertKeyword(`Give target friendly operative +${chipParamX}/+${chipParamX} Power Armor token.`)}
+                  className="px-2 py-0.5 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 text-[10px] font-mono transition-colors font-bold"
                 >
-                  ++1 OFF or +1 DEF
+                  ++{chipParamX}/+{chipParamX} Power Armor token
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`Give Operative +${chipParamX} OFF or +${chipParamX} DEF for 1 turn.`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  ++{chipParamX} OFF or +{chipParamX} DEF
                 </button>
                 <button
                   type="button"
@@ -706,6 +741,13 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                 >
                   +for 1 turn
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertKeyword(`or`)}
+                  className="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 text-[10px] font-mono transition-colors font-bold"
+                >
+                  +or
+                </button>
               </div>
             </div>
           </div>
@@ -827,6 +869,7 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-1">
               {[
                 { id: 'tech_token', label: '⚡ +x/+x Tech' },
+                { id: 'power_armor_token', label: '🛡️ +x/+x Power Armor' },
                 { id: 'buff', label: '⚔️ Stat Buff' },
                 { id: 'skill', label: '🎖️ Skill Token' },
                 { id: 'draw', label: '🎴 Draw Cards' },
@@ -877,6 +920,31 @@ export const AbilityRuleEditor: React.FC<AbilityRuleEditorProps> = ({
                   />
                   <span className="text-zinc-300 text-xs">
                     Grants <strong className="text-cyan-300">+{techTokenAmount}/+{techTokenAmount} Tech token</strong> to target operative.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {builderEffectCategory === 'power_armor_token' && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-emerald-300 font-bold flex items-center gap-1">
+                    <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Power Armor Token Buff Amount (+x/+x)</span>
+                  </label>
+                  <span className="text-[10px] text-zinc-400">Gives 1 or more point bonus to OFF and DEF</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={6}
+                    value={powerArmorTokenAmount}
+                    onChange={e => setPowerArmorTokenAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 bg-zinc-950 border border-emerald-600/60 rounded px-2.5 py-1 text-xs text-emerald-300 font-bold text-center"
+                  />
+                  <span className="text-zinc-300 text-xs">
+                    Grants <strong className="text-emerald-300">+{powerArmorTokenAmount}/+{powerArmorTokenAmount} Power Armor token</strong> to target operative.
                   </span>
                 </div>
               </div>

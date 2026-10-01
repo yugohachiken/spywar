@@ -277,7 +277,8 @@ export const ZoomedCardModal: React.FC = () => {
 
             {/* Operative Combat Stats (Big 32px Font) */}
             {card?.type === 'Operative' && (() => {
-              const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+              const armorTokens = Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0);
+              const tokenBuff = (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + armorTokens + (card.powerSuitTokens || 0);
               const totalOffBonus = (card.tempOffenseBuff || 0) + (card.operationOffenseBuff || 0) + tokenBuff;
               const totalDefBonus = (card.tempDefenseBuff || 0) + (card.operationDefenseBuff || 0) + tokenBuff;
               return (
@@ -366,10 +367,10 @@ export const ZoomedCardModal: React.FC = () => {
                     <span>Suit Token +{card.suitTokens}/+{card.suitTokens}</span>
                   </div>
                 )}
-                {(card.poweredArmorTokens || 0) > 0 && (
+                {Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0) > 0 && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950 text-emerald-300 border-2 border-emerald-600/60 font-mono font-bold text-xs sm:text-sm">
                     <Shield className="w-4 h-4 text-emerald-400" />
-                    <span>Powered Armor +{card.poweredArmorTokens}/+{card.poweredArmorTokens}</span>
+                    <span>Power Armor +{Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0)}/+{Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0)}</span>
                   </div>
                 )}
                 {(card.powerSuitTokens || 0) > 0 && (

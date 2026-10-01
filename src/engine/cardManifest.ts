@@ -292,6 +292,20 @@ export const OPERATIVE_CARDS: Card[] = [
     isNamed: true,
     specialAbility: 'dan_weak_sacrifice',
     abilityText: 'Sacrifice from play to either force target to discard hand OR discard 2 cards from play.'
+  },
+  {
+    id: 'op_vanguard_interceptor',
+    name: 'Vanguard Interceptor',
+    type: 'Operative',
+    cost: 3,
+    qty: 2,
+    off: 2,
+    def: 2,
+    ass: 1,
+    raid: 0,
+    sub: 1,
+    isInterrupt: true,
+    abilityText: 'Interrupt: Can be activated out-of-turn while in Ready condition to stop opponent turn and seize initiative.'
   }
 ];
 
@@ -334,7 +348,7 @@ export const SUPPORT_CARDS: Card[] = [
     type: 'Support',
     cost: 3,
     qty: 4,
-    abilityText: 'Intercept: Give +2 OFF to Attack Team or +2 DEF to Defense Team.',
+    abilityText: 'Intercept: Can not be used unless performing an attack or defense operation. Attack team receives +2 OFF; Defense team receives +2 DEF.',
     specialAbility: 'operative_crew_intercept',
     isIntercept: true,
     canPlayOnDefense: true
@@ -394,6 +408,16 @@ export const SUPPORT_CARDS: Card[] = [
     cost: 8,
     qty: 1,
     abilityText: 'Playable ONLY if you eliminated an enemy operative, raided 4+ coins, AND discarded a card from your hand this turn. Immediate victory!'
+  },
+  {
+    id: 'sup_emergency_counter',
+    name: 'Emergency Counter-Strike',
+    type: 'Support',
+    cost: 2,
+    qty: 2,
+    abilityText: 'Interrupt: Pay 2 coins to seize initiative out-of-turn and halt opponent operation.',
+    isInterrupt: true,
+    canPlayOnDefense: true
   }
 ];
 

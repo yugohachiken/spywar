@@ -28,6 +28,7 @@ export interface Card {
   techTokens?: number; // +x/+x Tech token bonus (buffs both OFF and DEF)
   weaponTokens?: number; // +x/+x Weapon token bonus (buffs both OFF and DEF)
   suitTokens?: number; // +x/+x Suit token bonus (buffs both OFF and DEF)
+  powerArmorTokens?: number; // +x/+x Power Armor token bonus (buffs both OFF and DEF)
   poweredArmorTokens?: number; // +x/+x Powered armor token bonus (buffs both OFF and DEF)
   powerSuitTokens?: number; // +x/+x Power Suit token bonus (buffs both OFF and DEF)
   discardToken?: boolean; // Card with Discard token is discarded at end of player's turn
@@ -121,6 +122,7 @@ export interface Action {
   card?: Card;
   attackerCards?: Card[];
   defenderCardIds?: string[];
+  selectedDefenderIds?: string[];
   defenderCards?: Card[];
   targetId?: string;
   targetName?: string;

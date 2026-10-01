@@ -36,8 +36,10 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
 }) => {
   if (selectedAttackers.length === 0) return null;
 
-  const getCardTokenBuff = (c: Card) =>
-    (c.techTokens || 0) + (c.weaponTokens || 0) + (c.suitTokens || 0) + (c.poweredArmorTokens || 0) + (c.powerSuitTokens || 0);
+  const getCardTokenBuff = (c: Card) => {
+    const armor = Math.max(c.powerArmorTokens || 0, c.poweredArmorTokens || 0);
+    return (c.techTokens || 0) + (c.weaponTokens || 0) + (c.suitTokens || 0) + armor + (c.powerSuitTokens || 0);
+  };
 
   // Calculate Base Offense and Skills for the operative team (including Tech, Weapon, Suit, Armor tokens & buffs)
   const baseOffense = selectedAttackers.reduce((acc, c) => acc + (c.off || 1) + (c.tempOffenseBuff || 0) + (c.operationOffenseBuff || 0) + getCardTokenBuff(c), 0);
@@ -119,7 +121,7 @@ export const CombatPlanner: React.FC<CombatPlannerProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wide">
-                Strike Team Prepared ({selectedAttackers.length} Operative{selectedAttackers.length > 1 ? 's' : ''})
+                Attack Team Prepared ({selectedAttackers.length} Operative{selectedAttackers.length > 1 ? 's' : ''})
               </h4>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
                 Shift + Click to add/remove

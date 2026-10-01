@@ -928,50 +928,16 @@ export class SpywarEngine {
               });
             }
           } else if (selectedCard.name === 'Operative Crew' || selectedCard.specialAbility === 'operative_crew_intercept' || selectedCard.specialAbility === 'assemble_strike_defense') {
-            const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-            if (friendlyOps.length === 0) {
-              actions.push({
-                type: 'PLAY_CARD',
-                cardId: selectedCard.id,
-                cardName: selectedCard.name,
-                card: selectedCard,
-                subChoice: 'buff_attack_team',
-                desc: `Deploy ${selectedCard.name}: Give +2 OFF to Attack Team (${deployCostDesc})`
-              });
-              actions.push({
-                type: 'PLAY_CARD',
-                cardId: selectedCard.id,
-                cardName: selectedCard.name,
-                card: selectedCard,
-                subChoice: 'buff_defense_team',
-                desc: `Deploy ${selectedCard.name}: Give +2 DEF to Defense Team (${deployCostDesc})`
-              });
-            } else {
-              for (const op of friendlyOps) {
-                actions.push({
-                  type: 'PLAY_CARD',
-                  cardId: selectedCard.id,
-                  cardName: selectedCard.name,
-                  card: selectedCard,
-                  targetId: op.id,
-                  targetName: op.name,
-                  targetCard: op,
-                  subChoice: 'buff_attack_team',
-                  desc: `Deploy ${selectedCard.name} (${deployCostDesc}) -> Give +2 OFF to Attack Team (${op.name})`
-                });
-                actions.push({
-                  type: 'PLAY_CARD',
-                  cardId: selectedCard.id,
-                  cardName: selectedCard.name,
-                  card: selectedCard,
-                  targetId: op.id,
-                  targetName: op.name,
-                  targetCard: op,
-                  subChoice: 'buff_defense_team',
-                  desc: `Deploy ${selectedCard.name} (${deployCostDesc}) -> Give +2 DEF to Defense Team (${op.name})`
-                });
-              }
-            }
+            // Rule: Operative Crew can not be used unless the player has an Operative, solo or team, performing an attack or defense operation.
+            actions.push({
+              type: 'PLAY_CARD',
+              cardId: selectedCard.id,
+              cardName: selectedCard.name,
+              card: selectedCard,
+              disabled: true,
+              disabledReason: 'Operative Crew can not be used unless performing an attack or defense operation. First select your Operative(s) to attack, or use it when defending an incoming attack.',
+              desc: `${selectedCard.name}: Can only be used during an attack or defense operation`
+            });
           } else if (selectedCard.type === 'Support') {
             if (this.isSupportPlayable(selectedCard.name, player, opponent)) {
               if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(selectedCard.name)) {
@@ -1894,50 +1860,8 @@ export class SpywarEngine {
             });
           }
         } else if (card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
-          const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-          if (friendlyOps.length === 0) {
-            actions.push({
-              type: 'PLAY_CARD',
-              cardId: card.id,
-              cardName: card.name,
-              card,
-              subChoice: 'buff_attack_team',
-              desc: `Deploy ${card.name}: Give +2 OFF to Attack Team (${deployCostDesc})`
-            });
-            actions.push({
-              type: 'PLAY_CARD',
-              cardId: card.id,
-              cardName: card.name,
-              card,
-              subChoice: 'buff_defense_team',
-              desc: `Deploy ${card.name}: Give +2 DEF to Defense Team (${deployCostDesc})`
-            });
-          } else {
-            for (const op of friendlyOps) {
-              actions.push({
-                type: 'PLAY_CARD',
-                cardId: card.id,
-                cardName: card.name,
-                card,
-                targetId: op.id,
-                targetName: op.name,
-                targetCard: op,
-                subChoice: 'buff_attack_team',
-                desc: `Deploy ${card.name} (${deployCostDesc}) -> Give +2 OFF to Attack Team (${op.name})`
-              });
-              actions.push({
-                type: 'PLAY_CARD',
-                cardId: card.id,
-                cardName: card.name,
-                card,
-                targetId: op.id,
-                targetName: op.name,
-                targetCard: op,
-                subChoice: 'buff_defense_team',
-                desc: `Deploy ${card.name} (${deployCostDesc}) -> Give +2 DEF to Defense Team (${op.name})`
-              });
-            }
-          }
+          // Rule: Operative Crew can not be used unless the player has an Operative, solo or team, performing an attack or defense operation.
+          // It is not playable as a standalone turn action.
         } else if (card.type === 'Support') {
           if (this.isSupportPlayable(card.name, player, opponent)) {
             if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(card.name)) {
@@ -2202,14 +2126,19 @@ export class SpywarEngine {
     // Defense reaction & intercept abilities are resolved during attack interception, not as standard turn actions
     if (parsed.trigger === 'reaction_defense' || parsed.trigger === 'intercept' || parsed.isIntercept || card.isIntercept || parsed.canPlayOnDefense) return actions;
 
-    // Passive abilities provide static continuous effects, not activated actions
-    if (parsed.isPassive || parsed.trigger === 'passive') return actions;
+    const isPassive = parsed.isPassive || parsed.trigger === 'passive';
+
+    // Static continuous passive abilities (e.g. passive deploy discounts) do not generate activated turn actions
+    const isStaticContinuousOnly = isPassive && 
+      parsed.effects.length > 0 && 
+      parsed.effects.every(e => e.type === 'cost_discount');
+    if (isStaticContinuousOnly) return actions;
 
     // Deploy abilities trigger upon entering play, not as activated actions
     if (parsed.trigger === 'deploy') return actions;
 
-    // In-play cards that are exhausted cannot take actions
-    if (card.exhausted) return actions;
+    // In-play cards that are exhausted cannot take actions (Passive cards never exhaust and can be used multiple times)
+    if (card.exhausted && !isPassive) return actions;
 
     // Check coin/resource cost condition ("Pay x")
     const costCoins = parsed.costCoins || 0;
@@ -2219,17 +2148,20 @@ export class SpywarEngine {
       ? `Requires ${costCoins} resource(s) (You have ${playerSpendable})`
       : undefined;
 
-    // An activated ability on a card in play must exhaust unless it's a sacrifice or pay-only trigger
-    const shouldRequireTap = parsed.requiresTap || parsed.trigger === 'tap' || costCoins <= 0;
+    // Rule clarification: To use a card's special ability, the player must Exhaust or Tap the card,
+    // even if the Special Ability Description did not mention the word "Tap" or "Exhaust".
+    // This limits the card to use its special ability only once per turn.
+    // The ONLY exception is if the card has "Passive" special ability, which does not tap/exhaust and can be used multiple times.
+    const shouldRequireTap = !isPassive && !parsed.requiresSacrifice;
 
     // Determine descriptive prefix
     let prefix = '';
     if (parsed.requiresSacrifice) {
       prefix = costCoins > 0 ? `Sacrifice [Pay ${costCoins}] ${card.name}` : `Sacrifice ${card.name}`;
+    } else if (isPassive) {
+      prefix = costCoins > 0 ? `[Passive - Pay ${costCoins}] ${card.name}` : `[Passive] ${card.name}`;
     } else if (shouldRequireTap) {
       prefix = costCoins > 0 ? `Exhaust [Pay ${costCoins}] ${card.name}` : `Exhaust ${card.name}`;
-    } else if (costCoins > 0) {
-      prefix = `[Pay ${costCoins}] ${card.name}`;
     } else {
       prefix = `Exhaust ${card.name}`;
     }
@@ -2238,7 +2170,7 @@ export class SpywarEngine {
       trigger: parsed.trigger,
       costCoins: parsed.costCoins,
       requiresTap: shouldRequireTap,
-      isPassive: false,
+      isPassive: isPassive,
       requiresSacrifice: parsed.requiresSacrifice
     };
 
@@ -2545,27 +2477,27 @@ export class SpywarEngine {
       } else {
         const amt = tokenEff.amount || 1;
 
-        if (tokenType === 'tech' || tokenType === 'weapon' || tokenType === 'suit' || tokenType === 'powered_armor' || tokenType === 'power_suit' || tokenEff.stat === 'both') {
+        if (tokenType === 'tech' || tokenType === 'weapon' || tokenType === 'suit' || tokenType === 'power_armor' || tokenType === 'powered_armor' || tokenType === 'power_suit' || tokenEff.stat === 'both') {
           // Stat tokens buff both OFF and DEF by x. Same tokens cannot be stacked together on a single card.
           // If a player has more than one valid Operative card, the Player selects which Operative card receives the token.
           let tokenLabel = 'Tech';
-          let tokenKey: 'techTokens' | 'weaponTokens' | 'suitTokens' | 'poweredArmorTokens' | 'powerSuitTokens' = 'techTokens';
+          let tokenKey: 'techTokens' | 'weaponTokens' | 'suitTokens' | 'powerArmorTokens' | 'poweredArmorTokens' | 'powerSuitTokens' = 'techTokens';
           if (tokenType === 'weapon') {
             tokenLabel = 'Weapon';
             tokenKey = 'weaponTokens';
           } else if (tokenType === 'suit') {
             tokenLabel = 'Suit';
             tokenKey = 'suitTokens';
-          } else if (tokenType === 'powered_armor') {
-            tokenLabel = 'Powered armor';
-            tokenKey = 'poweredArmorTokens';
+          } else if (tokenType === 'power_armor' || tokenType === 'powered_armor') {
+            tokenLabel = 'Power Armor';
+            tokenKey = 'powerArmorTokens';
           } else if (tokenType === 'power_suit') {
             tokenLabel = 'Power Suit';
             tokenKey = 'powerSuitTokens';
           }
 
           for (const op of friendlyOps) {
-            const hasSameToken = ((op[tokenKey] as number) || 0) > 0;
+            const hasSameToken = ((op[tokenKey] as number) || 0) > 0 || (tokenKey === 'powerArmorTokens' && ((op.poweredArmorTokens as number) || 0) > 0);
             actions.push({
               type: 'DYNAMIC_ABILITY',
               cardId: card.id,
@@ -2698,7 +2630,7 @@ export class SpywarEngine {
     if (['Assassination Training', 'Raid Training', 'Subterfuge Training'].includes(cardName)) {
       return friendlyOps.length > 0;
     }
-    if (cardName.startsWith('Operative Crew')) return friendlyOps.length > 0 && this.getTotalSpendableCoins(player) >= 3;
+    if (cardName.startsWith('Operative Crew')) return false; // Can only be used during an attack or defense operation
     if (['Double Agent', 'Targeted for Whitewash'].includes(cardName)) return enemyOps.length > 0;
     if (cardName === 'Acquisition') return enemyLocs.length > 0;
     if (cardName === 'Hiring Hackers') return this.getTotalSpendableCoins(opponent) > 0;
@@ -3055,10 +2987,13 @@ export class SpywarEngine {
         || card;
 
       const isPassive = effData?.isPassive ?? (trigger === 'passive');
-      const shouldExhaust = effData?.requiresTap ?? (trigger === 'tap' || (!costCoins && !isPassive));
+      const shouldExhaust = effData?.requiresTap ?? !isPassive;
       if (shouldExhaust && !isPassive) {
         realCard.exhausted = true;
         card.exhausted = true;
+        this.log(player.pid, 'EXHAUST', `${card.name} exhausted (E) after using special ability (1 use per turn).`);
+      } else if (isPassive) {
+        this.log(player.pid, 'PASSIVE-ABILITY', `${card.name} used Passive ability (Does not exhaust, usable multiple times).`);
       }
 
       if (trigger === 'sacrifice' || effData?.requiresSacrifice) {
@@ -3228,14 +3163,15 @@ export class SpywarEngine {
           return { success: true, message: `Placed +${amt}/+${amt} Suit token on ${target.name}.` };
         }
 
-        if (tokenType === 'powered_armor') {
-          if ((target.poweredArmorTokens || 0) > 0) {
-            return { success: false, message: `${target.name} already has a Powered armor token (Stacking same token is not allowed).` };
+        if (tokenType === 'power_armor' || tokenType === 'powered_armor') {
+          if (((target.powerArmorTokens || 0) + (target.poweredArmorTokens || 0)) > 0) {
+            return { success: false, message: `${target.name} already has a Power Armor token (Stacking same token is not allowed).` };
           }
+          target.powerArmorTokens = (target.powerArmorTokens || 0) + amt;
           target.poweredArmorTokens = (target.poweredArmorTokens || 0) + amt;
-          target.appliedTokens = [...(target.appliedTokens || []), 'powered_armor'];
-          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Powered armor token on ${target.name}.`);
-          return { success: true, message: `Placed +${amt}/+${amt} Powered armor token on ${target.name}.` };
+          target.appliedTokens = [...(target.appliedTokens || []), 'power_armor'];
+          this.log(player.pid, 'DYNAMIC-ABILITY', `${card.name} placed +${amt}/+${amt} Power Armor token on ${target.name}.`);
+          return { success: true, message: `Placed +${amt}/+${amt} Power Armor token on ${target.name}.` };
         }
 
         if (tokenType === 'power_suit') {
@@ -3416,70 +3352,65 @@ export class SpywarEngine {
       }
 
       if (card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense') {
-        if (card.type === 'Support') {
-          player.discard_pile.push(card);
-        } else {
-          const opExh = this.config.operativeSummonState === 'E';
-          player.battlefield.push({ ...card, exhausted: opExh });
-        }
+        const isAttackOp = action.subChoice === 'buff_attack_team' || action.subChoice === 'assemble_strike';
+        const isDefenseOp = action.subChoice === 'buff_defense_team' || action.subChoice === 'assemble_defense';
 
-        const friendlyOps = player.battlefield.filter(c => c.type === 'Operative');
-        const targetOp = action.targetCard 
-          || player.battlefield.find(c => c.id === action.targetId)
-          || (action.attackerCards && action.attackerCards.length > 0 ? player.battlefield.find(c => c.id === action.attackerCards![0].id) : undefined);
+        if (isAttackOp) {
+          // Rule: Operative Crew can not be used unless the player has an Operative, solo or team, performing an attack operation.
+          const attackTeam = (action.attackerCards && action.attackerCards.length > 0)
+            ? player.battlefield.filter(c => action.attackerCards!.some(a => a.id === c.id))
+            : (action.targetCard && action.targetCard.type === 'Operative' ? [action.targetCard] : []);
 
-        if (action.subChoice === 'buff_defense_team' || action.subChoice === 'assemble_defense') {
-          if (targetOp) {
-            targetOp.tempDefenseBuff = (targetOp.tempDefenseBuff || 0) + 2;
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 DEF granted to Defense Team (${targetOp.name}).`);
-          } else if (friendlyOps.length > 0) {
-            friendlyOps[0].tempDefenseBuff = (friendlyOps[0].tempDefenseBuff || 0) + 2;
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 DEF granted to Defense Team (${friendlyOps[0].name}).`);
-          } else {
-            const defToken: Card = {
-              id: `token_def_${Date.now()}`,
-              name: 'Defense Team Token',
-              type: 'Operative',
-              cost: 0,
-              off: 1,
-              def: 3,
-              ass: 0,
-              raid: 0,
-              sub: 0,
-              production: 0,
-              exhausted: this.config.operativeSummonState === 'E',
-              tempDefenseBuff: 2
+          if (attackTeam.length === 0) {
+            return {
+              success: false,
+              message: 'Operative Crew can not be used unless the player has an Operative, solo or team, performing an attack operation.'
             };
-            player.battlefield.push(defToken);
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! Defense Team Token created (+2 DEF).`);
           }
-          return { success: true, message: `Operative Crew: +2 DEF granted to Defense Team.` };
+          if (card.type === 'Support') {
+            player.discard_pile.push(card);
+          } else {
+            const opExh = this.config.operativeSummonState === 'E';
+            player.battlefield.push({ ...card, exhausted: opExh });
+          }
+          for (const op of attackTeam) {
+            op.tempOffenseBuff = (op.tempOffenseBuff || 0) + 2;
+          }
+          const opNames = attackTeam.map(o => o.name).join(', ');
+          this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 OFF granted to Attack Team [${opNames}].`);
+          return { success: true, message: `Operative Crew: +2 OFF granted to Attack Team (${opNames}).` };
+        } else if (isDefenseOp) {
+          // Rule: Operative Crew can not be used unless the player has an Operative, solo or team, performing a defense operation.
+          const defIds = action.selectedDefenderIds || action.defenderCardIds || defenderCardIds;
+          const defTeam = (action.targetCard && action.targetCard.type === 'Operative')
+            ? [action.targetCard]
+            : (defIds && defIds.length > 0
+                ? player.battlefield.filter(c => defIds.includes(c.id))
+                : (action.attackerCards ? player.battlefield.filter(c => action.attackerCards!.some(a => a.id === c.id)) : []));
+
+          if (defTeam.length === 0) {
+            return {
+              success: false,
+              message: 'Operative Crew can not be used unless the player has an Operative, solo or team, performing a defense operation.'
+            };
+          }
+          if (card.type === 'Support') {
+            player.discard_pile.push(card);
+          } else {
+            const opExh = this.config.operativeSummonState === 'E';
+            player.battlefield.push({ ...card, exhausted: opExh });
+          }
+          for (const op of defTeam) {
+            op.tempDefenseBuff = (op.tempDefenseBuff || 0) + 2;
+          }
+          const opNames = defTeam.map(o => o.name).join(', ');
+          this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 DEF granted to Defense Team [${opNames}].`);
+          return { success: true, message: `Operative Crew: +2 DEF granted to Defense Team (${opNames}).` };
         } else {
-          if (targetOp) {
-            targetOp.tempOffenseBuff = (targetOp.tempOffenseBuff || 0) + 2;
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 OFF granted to Attack Team (${targetOp.name}).`);
-          } else if (friendlyOps.length > 0) {
-            friendlyOps[0].tempOffenseBuff = (friendlyOps[0].tempOffenseBuff || 0) + 2;
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! +2 OFF granted to Attack Team (${friendlyOps[0].name}).`);
-          } else {
-            const strikeToken: Card = {
-              id: `token_strike_${Date.now()}`,
-              name: 'Strike Team Token',
-              type: 'Operative',
-              cost: 0,
-              off: 3,
-              def: 1,
-              ass: 0,
-              raid: 0,
-              sub: 0,
-              production: 0,
-              exhausted: this.config.operativeSummonState === 'E',
-              tempOffenseBuff: 2
-            };
-            player.battlefield.push(strikeToken);
-            this.log(player.pid, 'OPERATIVE-CREW', `Operative Crew deployed! Attack Team Token created (+2 OFF).`);
-          }
-          return { success: true, message: `Operative Crew: +2 OFF granted to Attack Team.` };
+          return {
+            success: false,
+            message: 'Operative Crew can not be used unless the player has an Operative, solo or team, performing an attack or defense operation.'
+          };
         }
       }
 
@@ -3923,17 +3854,16 @@ export class SpywarEngine {
     }
 
     if (action.type === 'INTERRUPT_ACTION') {
-      const card = action.card || player.hand.find(c => c.id === action.cardId) || player.battlefield.find(c => c.id === action.cardId);
+      const card = action.card || player.hand.find(c => c.id === action.cardId) || player.battlefield.find(c => c.id === action.cardId) || (player.affiliation?.id === action.cardId ? player.affiliation : undefined);
       if (!card) return { success: false, message: 'Interrupt card not found.' };
 
       const inHandIdx = player.hand.findIndex(c => c.id === card.id);
       if (inHandIdx !== -1) {
         // Playing from hand out of turn
         const cost = card.cost || 0;
-        if (player.current_turn_coins < cost) {
-          return { success: false, message: `Not enough coins to play Interrupt (Requires ${cost}).` };
+        if (!this.spendCoins(player, cost)) {
+          return { success: false, message: `Not enough spendable coins to play Interrupt (Requires ${cost}).` };
         }
-        player.current_turn_coins -= cost;
         player.hand.splice(inHandIdx, 1);
         player.telemetry.cardsPlayedThisTurn++;
         this.recordCardPlayed(card);
@@ -3945,6 +3875,24 @@ export class SpywarEngine {
           if (action.dynamicAbilityEffect) {
             return this.executeAction(player, opponent, { ...action, type: 'DYNAMIC_ABILITY' });
           }
+          const parsed = (card.abilityText || card.specialAbility) ? AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility) : null;
+          if (parsed && parsed.effects.length > 0) {
+            for (const effect of parsed.effects) {
+              this.executeAction(player, opponent, {
+                type: 'DYNAMIC_ABILITY',
+                card,
+                cardId: card.id,
+                cardName: card.name,
+                desc: `⚡ Interrupt Support Effect: ${card.name}`,
+                dynamicAbilityEffect: {
+                  effect,
+                  costCoins: 0,
+                  isPassive: false,
+                  requiresTap: false
+                }
+              });
+            }
+          }
           return { success: true, message: `Played Interrupt ${card.name} out-of-turn.` };
         } else {
           card.exhausted = this.config.operativeSummonState === 'E';
@@ -3953,8 +3901,58 @@ export class SpywarEngine {
           return { success: true, message: `Deployed Interrupt ${card.name} out-of-turn.` };
         }
       } else {
-        // Triggering from battlefield
-        return this.executeAction(player, opponent, { ...action, type: 'DYNAMIC_ABILITY' });
+        // Triggering from battlefield or affiliation: Card MUST be in Ready condition unless marked Passive
+        const parsed = (card.abilityText || card.specialAbility) ? AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility) : null;
+        const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+        if (card.exhausted && !isPassive) {
+          return { success: false, message: `${card.name} is exhausted (E) and cannot use Interrupt special ability (must be in Ready condition).` };
+        }
+
+        if (action.dynamicAbilityEffect) {
+          const res = this.executeAction(player, opponent, { ...action, type: 'DYNAMIC_ABILITY' });
+          if (res.success && !isPassive) {
+            card.exhausted = true;
+            if (player.affiliation?.id === card.id) {
+              player.affiliation.exhausted = true;
+            }
+            this.log(player.pid, 'EXHAUST', `${card.name} exhausted (E) after using Interrupt special ability (1 use per turn).`);
+          }
+          return res;
+        } else {
+          // General Interrupt activation
+          const costCoins = parsed?.costCoins || 0;
+          if (costCoins > 0) {
+            if (!this.spendCoins(player, costCoins)) {
+              return { success: false, message: `Not enough coins to activate Interrupt on ${card.name} (Requires ${costCoins}).` };
+            }
+          }
+          if (parsed && parsed.effects.length > 0) {
+            for (const effect of parsed.effects) {
+              this.executeAction(player, opponent, {
+                type: 'DYNAMIC_ABILITY',
+                card,
+                cardId: card.id,
+                cardName: card.name,
+                desc: `⚡ Interrupt Ability Effect: ${card.name}`,
+                dynamicAbilityEffect: {
+                  effect,
+                  costCoins: 0,
+                  isPassive,
+                  requiresTap: !isPassive
+                }
+              });
+            }
+          }
+          if (!isPassive) {
+            card.exhausted = true;
+            if (player.affiliation?.id === card.id) {
+              player.affiliation.exhausted = true;
+            }
+            this.log(player.pid, 'EXHAUST', `${card.name} exhausted (E) after using Interrupt special ability (1 use per turn).`);
+          }
+          this.log(player.pid, 'INTERRUPT', `⚡ Activated Interrupt special ability on ${card.name}!`);
+          return { success: true, message: `Activated Interrupt on ${card.name}.` };
+        }
       }
     }
 
@@ -3966,6 +3964,7 @@ export class SpywarEngine {
    */
   getInterruptActions(player: Player, opponent: Player): Action[] {
     const actions: Action[] = [];
+    const spendable = this.getTotalSpendableCoins(player);
 
     // 1. Cards in hand with Interrupt keyword
     for (const card of player.hand) {
@@ -3978,8 +3977,9 @@ export class SpywarEngine {
       }
 
       if (isInterrupt) {
-        const hasCoins = player.current_turn_coins >= (card.cost || 0);
-        const costReason = !hasCoins ? `Requires ${card.cost} coins (You have ${player.current_turn_coins})` : undefined;
+        const cost = card.cost || 0;
+        const hasCoins = spendable >= cost;
+        const costReason = !hasCoins ? `Requires ${cost} coins (You have ${spendable})` : undefined;
 
         if (card.type === 'Support') {
           const parsed = (card.abilityText || card.specialAbility) ? AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '') : null;
@@ -4000,7 +4000,7 @@ export class SpywarEngine {
               card,
               disabled: !hasCoins,
               disabledReason: costReason,
-              desc: `⚡ Interrupt from Hand: Play ${card.name} (${card.cost} coins)`
+              desc: `⚡ Interrupt from Hand: Play ${card.name} (${cost} coins)`
             });
           }
         } else {
@@ -4011,7 +4011,7 @@ export class SpywarEngine {
             card,
             disabled: !hasCoins,
             disabledReason: costReason,
-            desc: `⚡ Interrupt Deploy: Deploy ${card.name} out-of-turn (${card.type}, ${card.cost} coins)`
+            desc: `⚡ Interrupt Deploy: Deploy ${card.name} out-of-turn (${card.type}, ${cost} coins)`
           });
         }
       }
@@ -4020,21 +4020,80 @@ export class SpywarEngine {
     // 2. Cards on battlefield with Interrupt keyword
     for (const card of player.battlefield) {
       let isInterrupt = card.isInterrupt;
-      if (!isInterrupt && (card.abilityText || card.specialAbility)) {
-        const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '');
+      const parsed = (card.abilityText || card.specialAbility) ? AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility || '') : null;
+      if (!isInterrupt && parsed) {
         if (parsed.isInterrupt || parsed.trigger === 'interrupt') {
           isInterrupt = true;
         }
       }
 
       if (isInterrupt) {
+        const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+        // In-play cards that are exhausted cannot take actions unless marked Passive (must be in Ready condition)
+        if (card.exhausted && !isPassive) {
+          continue;
+        }
+
         const dyn = this.generateDynamicActionsForCard(card, player, opponent);
-        for (const act of dyn) {
+        if (dyn.length > 0) {
+          for (const act of dyn) {
+            actions.push({
+              ...act,
+              type: 'INTERRUPT_ACTION',
+              desc: `⚡ Interrupt: ${act.desc}`
+            });
+          }
+        } else {
+          const costCoins = parsed?.costCoins || 0;
+          const hasCoins = costCoins <= 0 || spendable >= costCoins;
           actions.push({
-            ...act,
             type: 'INTERRUPT_ACTION',
-            desc: `⚡ Interrupt: ${act.desc}`
+            cardId: card.id,
+            cardName: card.name,
+            card,
+            disabled: !hasCoins,
+            disabledReason: !hasCoins ? `Requires ${costCoins} coins (You have ${spendable})` : undefined,
+            desc: `⚡ Interrupt: Activate ${card.name} Special Ability out-of-turn`
           });
+        }
+      }
+    }
+
+    // 3. Affiliation card with Interrupt keyword
+    if (player.affiliation) {
+      const aff = player.affiliation;
+      let isInterrupt = aff.isInterrupt;
+      const parsed = (aff.abilityText || aff.specialAbility) ? AbilityParserService.getInstance().parseAbility(aff.abilityText || aff.specialAbility || '') : null;
+      if (!isInterrupt && parsed) {
+        if (parsed.isInterrupt || parsed.trigger === 'interrupt') {
+          isInterrupt = true;
+        }
+      }
+      if (isInterrupt) {
+        const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+        if (!aff.exhausted || isPassive) {
+          const dyn = this.generateDynamicActionsForCard(aff, player, opponent);
+          if (dyn.length > 0) {
+            for (const act of dyn) {
+              actions.push({
+                ...act,
+                type: 'INTERRUPT_ACTION',
+                desc: `⚡ Interrupt: ${act.desc}`
+              });
+            }
+          } else {
+            const costCoins = parsed?.costCoins || 0;
+            const hasCoins = costCoins <= 0 || spendable >= costCoins;
+            actions.push({
+              type: 'INTERRUPT_ACTION',
+              cardId: aff.id,
+              cardName: aff.name,
+              card: aff,
+              disabled: !hasCoins,
+              disabledReason: !hasCoins ? `Requires ${costCoins} coins (You have ${spendable})` : undefined,
+              desc: `⚡ Interrupt: Activate ${aff.name} Special Ability out-of-turn`
+            });
+          }
         }
       }
     }
@@ -4044,10 +4103,11 @@ export class SpywarEngine {
 
   // ==========================================
   // STAT TOKENS SYSTEM
-  // Calculates combined stat bonus from Tech, Weapon, Suit, Powered Armor, Power Suit tokens
+  // Calculates combined stat bonus from Tech, Weapon, Suit, Power Armor, Power Suit tokens
   // ==========================================
   public getCardStatTokensBuff(card: Card): number {
-    return (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + (card.poweredArmorTokens || 0) + (card.powerSuitTokens || 0);
+    const armorTokens = Math.max(card.powerArmorTokens || 0, card.poweredArmorTokens || 0);
+    return (card.techTokens || 0) + (card.weaponTokens || 0) + (card.suitTokens || 0) + armorTokens + (card.powerSuitTokens || 0);
   }
 
   // ==========================================
@@ -4149,9 +4209,13 @@ export class SpywarEngine {
       };
     }
 
-    // Exhaust assigned defending operatives
+    // Exhaust assigned defending operatives (unless they have Passive special ability)
     for (const d of assigned) {
-      d.exhausted = true;
+      const dParsed = (d.abilityText || d.specialAbility) ? AbilityParserService.getInstance().parseAbility(d.abilityText || d.specialAbility) : null;
+      const dPassive = dParsed?.isPassive || dParsed?.trigger === 'passive';
+      if (!dPassive) {
+        d.exhausted = true;
+      }
     }
 
     // Total defense values + 1 point for each applicable Skill rating
@@ -4194,13 +4258,15 @@ export class SpywarEngine {
       return { success: false, defBonus: 0, message: 'Card not found in hand, battlefield, or affiliation.' };
     }
 
+    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility);
+    const isPassive = parsed.isPassive || parsed.trigger === 'passive';
+
     if (isAffiliation || inPlayCard) {
-      if (card.exhausted) {
-        return { success: false, defBonus: 0, message: `${card.name} is already exhausted.` };
+      if (card.exhausted && !isPassive) {
+        return { success: false, defBonus: 0, message: `${card.name} is already exhausted (E) and cannot use Intercept.` };
       }
     }
 
-    const parsed = AbilityParserService.getInstance().parseAbility(card.abilityText || card.specialAbility);
     const isReaction = card.canPlayOnDefense || card.type === 'Support' || card.name.startsWith('Operative Crew') || card.specialAbility === 'operative_crew_intercept' || card.specialAbility === 'assemble_strike_defense' || parsed.canPlayOnDefense || card.isIntercept || card.isInterrupt || parsed.isIntercept || parsed.isInterrupt;
 
     if (!isReaction) {
@@ -4251,7 +4317,12 @@ export class SpywarEngine {
       defender.battlefield.push(tokenCard);
 
       if (isAffiliation || inPlayCard) {
-        card.exhausted = true;
+        if (!isPassive) {
+          card.exhausted = true;
+          this.log(defender.pid, 'EXHAUST', `${card.name} exhausted (E) after using Intercept special ability (1 use per turn).`);
+        } else {
+          this.log(defender.pid, 'PASSIVE-ABILITY', `${card.name} used Passive Intercept ability (Does not exhaust, usable multiple times).`);
+        }
       } else if (cardIdx !== -1) {
         defender.hand.splice(cardIdx, 1);
         defender.discard_pile.push(card);
@@ -4280,7 +4351,7 @@ export class SpywarEngine {
         return {
           success: false,
           defBonus: 0,
-          message: 'You must have a Defense Team selected to play Operative Crew as an Intercept card.'
+          message: 'Operative Crew can not be used unless you have an Operative, solo or team, performing a defense operation.'
         };
       }
       const crewCost = card.cost || 3;
@@ -4301,7 +4372,12 @@ export class SpywarEngine {
         this.recordCardPlayed(card);
         this.checkBigSpender(defender);
       } else {
-        card.exhausted = true;
+        if (!isPassive) {
+          card.exhausted = true;
+          this.log(defender.pid, 'EXHAUST', `${card.name} exhausted (E) after using Intercept special ability (1 use per turn).`);
+        } else {
+          this.log(defender.pid, 'PASSIVE-ABILITY', `${card.name} used Passive Intercept ability (Does not exhaust, usable multiple times).`);
+        }
       }
 
       const defOps = defender.battlefield.filter(c => selectedDefenderIds.includes(c.id));
@@ -4327,7 +4403,12 @@ export class SpywarEngine {
       this.recordCardPlayed(card);
       this.checkBigSpender(defender);
     } else {
-      card.exhausted = true;
+      if (!isPassive) {
+        card.exhausted = true;
+        this.log(defender.pid, 'EXHAUST', `${card.name} exhausted (E) after using Intercept special ability (1 use per turn).`);
+      } else {
+        this.log(defender.pid, 'PASSIVE-ABILITY', `${card.name} used Passive Intercept ability (Does not exhaust, usable multiple times).`);
+      }
     }
 
     let defBonus = 0;
@@ -4338,7 +4419,7 @@ export class SpywarEngine {
           readyOps[0].tempOffenseBuff = (readyOps[0].tempOffenseBuff || 0) + 2;
         }
         defBonus = 1;
-        this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn! Assembled Strike Team (+2 Offense, +1 Intercept DEF).`);
+        this.log(defender.pid, 'DEF-REACTION', `Played ${card.name} out of turn! Buffed Attack Team (+2 Offense, +1 Intercept DEF).`);
       } else {
         if (readyOps.length > 0) {
           readyOps[0].tempDefenseBuff = (readyOps[0].tempDefenseBuff || 0) + 2;

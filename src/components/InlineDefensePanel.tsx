@@ -1,6 +1,6 @@
 import React from 'react';
-import { Card, Player } from '../types/spywar';
-import { Shield, AlertTriangle, Check, X, User, Bot, Loader2 } from 'lucide-react';
+import { Action, Card, Player } from '../types/spywar';
+import { Shield, AlertTriangle, Check, X, User, Bot, Loader2, Zap } from 'lucide-react';
 import { SpywarEngine } from '../engine/SpywarEngine';
 import { AbilityParserService } from '../services/abilityParserService';
 
@@ -20,6 +20,7 @@ interface InlineDefensePanelProps {
   onDeclineDefense: () => void;
   isOnlinePeerWaiting?: boolean;
   isSpecialAbilityAttack?: boolean;
+  onActivateInterrupt?: (card: Card, action?: Action) => void;
 }
 
 export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
@@ -37,11 +38,96 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   onConfirmDefense,
   onDeclineDefense,
   isOnlinePeerWaiting = false,
-  isSpecialAbilityAttack = false
+  isSpecialAbilityAttack = false,
+  onActivateInterrupt
 }) => {
   const [bonusDef, setBonusDef] = React.useState(0);
   const [playedReactions, setPlayedReactions] = React.useState<{ name: string; bonus: number }[]>([]);
   const [reactionFeedback, setReactionFeedback] = React.useState<{ text: string; isError?: boolean } | null>(null);
+
+  const spendableCoins = engine.getTotalSpendableCoins(defender);
+  const allInterruptActions = engine.getInterruptActions(defender, attacker);
+
+  // Discover all cards with Interrupt ability eligible for activation
+  // Requirements:
+  // 1. In-play cards (battlefield/affiliation) must be in Ready condition (not exhausted) unless Passive
+  // 2. Player must have enough spendable resources to pay any activation cost
+  // 3. Hand cards must have sufficient spendable coins to deploy/play
+  const interruptCandidates: {
+    card: Card;
+    location: 'battlefield' | 'affiliation' | 'hand';
+    cost: number;
+    hasEnoughCoins: boolean;
+    isReady: boolean;
+    isPassive: boolean;
+    parsedAbility: any;
+    actions: Action[];
+  }[] = [];
+
+  // Check Affiliation for Interrupt
+  if (defender.affiliation) {
+    const aff = defender.affiliation;
+    const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
+    const isInterrupt = aff.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || aff.abilityText?.toLowerCase().includes('interrupt');
+    if (isInterrupt) {
+      const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+      const isReady = !aff.exhausted || isPassive;
+      const cost = parsed?.costCoins || 0;
+      const cardActions = allInterruptActions.filter(a => a.cardId === aff.id);
+      interruptCandidates.push({
+        card: aff,
+        location: 'affiliation',
+        cost,
+        hasEnoughCoins: spendableCoins >= cost,
+        isReady,
+        isPassive,
+        parsedAbility: parsed,
+        actions: cardActions
+      });
+    }
+  }
+
+  // Check Battlefield for Interrupt
+  for (const c of defender.battlefield) {
+    const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+    const isInterrupt = c.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || c.abilityText?.toLowerCase().includes('interrupt');
+    if (isInterrupt) {
+      const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+      const isReady = !c.exhausted || isPassive;
+      const cost = parsed?.costCoins || 0;
+      const cardActions = allInterruptActions.filter(a => a.cardId === c.id);
+      interruptCandidates.push({
+        card: c,
+        location: 'battlefield',
+        cost,
+        hasEnoughCoins: spendableCoins >= cost,
+        isReady,
+        isPassive,
+        parsedAbility: parsed,
+        actions: cardActions
+      });
+    }
+  }
+
+  // Check Hand for Interrupt
+  for (const c of defender.hand) {
+    const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+    const isInterrupt = c.isInterrupt || parsed?.isInterrupt || parsed?.trigger === 'interrupt' || c.abilityText?.toLowerCase().includes('interrupt');
+    if (isInterrupt) {
+      const cost = (c.cost || 0) + (parsed?.costCoins || 0);
+      const cardActions = allInterruptActions.filter(a => a.cardId === c.id);
+      interruptCandidates.push({
+        card: c,
+        location: 'hand',
+        cost,
+        hasEnoughCoins: spendableCoins >= cost,
+        isReady: true,
+        isPassive: parsed?.isPassive || false,
+        parsedAbility: parsed,
+        actions: cardActions
+      });
+    }
+  }
 
   // Eligible out-of-turn defense cards in hand (Support, Intercept, Interrupt, or reactive abilities)
   const reactionCards = defender.hand.filter(c => {
@@ -56,16 +142,20 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
 
   // Eligible in-play reaction cards (Affiliation or in-play cards with Intercept/Interrupt abilities)
   const reactionInPlayCards: Card[] = [];
-  if (defender.affiliation && !defender.affiliation.exhausted) {
+  if (defender.affiliation) {
     const aff = defender.affiliation;
     const parsed = aff.abilityText ? AbilityParserService.getInstance().parseAbility(aff.abilityText) : null;
-    if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
-      reactionInPlayCards.push(aff);
+    const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+    if (!aff.exhausted || isPassive) {
+      if (aff.canPlayOnDefense || aff.isIntercept || aff.isInterrupt || aff.specialAbility === 'the_company_intercept' || aff.name.includes('The Company') || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
+        reactionInPlayCards.push(aff);
+      }
     }
   }
   for (const c of defender.battlefield) {
-    if (!c.exhausted) {
-      const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+    const parsed = c.abilityText ? AbilityParserService.getInstance().parseAbility(c.abilityText) : null;
+    const isPassive = parsed?.isPassive || parsed?.trigger === 'passive';
+    if (!c.exhausted || isPassive) {
       if (c.canPlayOnDefense || c.isIntercept || c.isInterrupt || parsed?.isIntercept || parsed?.isInterrupt || parsed?.canPlayOnDefense || parsed?.trigger === 'intercept' || parsed?.trigger === 'reaction_defense') {
         reactionInPlayCards.push(c);
       }
@@ -189,6 +279,109 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ⚡ INTERRUPT SPECIAL ABILITIES (SEIZE INITIATIVE & STOP OPPONENT TURN) */}
+      {!isOnlinePeerWaiting && (
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/70 via-yellow-950/50 to-zinc-900 border-2 border-yellow-500/70 shadow-xl space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
+                <Zap className="w-4 h-4 fill-current animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-yellow-300 flex items-center gap-1.5">
+                  <span>⚡ INTERRUPT SPECIAL ABILITIES: SEIZE INITIATIVE</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-yellow-500/20 text-yellow-300 font-mono border border-yellow-500/40">
+                    Off-Turn Counter-Action
+                  </span>
+                </h4>
+                <p className="text-[10px] text-zinc-300 font-mono">
+                  Activating an Interrupt immediately <strong>STOPS {attacker.name}'s turn</strong> so you can play your ability and <strong>launch a Counter-Attack Operation</strong>!
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono text-zinc-400 bg-black/50 px-2 py-0.5 rounded border border-zinc-800">
+              Spendable: <strong className="text-amber-300">{spendableCoins} Coins</strong>
+            </span>
+          </div>
+
+          {interruptCandidates.length === 0 ? (
+            <div className="p-2 rounded bg-zinc-900/60 border border-zinc-800/80 text-[11px] font-mono text-zinc-400 flex items-center gap-2">
+              <span className="text-zinc-500">ℹ️</span>
+              <span>No cards with Interrupt special ability available in hand or ready in play.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2">
+              {interruptCandidates.map(cand => {
+                const canActivate = cand.isReady && cand.hasEnoughCoins;
+                return (
+                  <div
+                    key={`${cand.location}_${cand.card.id}`}
+                    className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs font-mono transition-all ${
+                      canActivate
+                        ? 'bg-zinc-900/90 border-yellow-500/60 shadow-md'
+                        : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 opacity-60'
+                    }`}
+                  >
+                    <div className="space-y-0.5 max-w-md">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-zinc-100">{cand.card.name}</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 uppercase">
+                          {cand.location === 'affiliation' ? 'Affiliation' : cand.location === 'battlefield' ? (cand.isPassive ? 'In Play (Passive)' : 'In Play (Ready)') : 'In Hand'}
+                        </span>
+                        {!cand.isReady && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-950 text-red-300 border border-red-800">
+                            Exhausted (Not Ready)
+                          </span>
+                        )}
+                        {cand.isPassive && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            Passive
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-zinc-300">
+                        {cand.card.abilityText || 'Interrupt Special Ability'}
+                      </div>
+                      <div className="text-[10px] text-zinc-400">
+                        {cand.cost > 0 ? `Cost: ${cand.cost} Coins` : 'Cost: Free'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!cand.isReady ? (
+                        <span className="text-[11px] text-red-400 font-bold">Must be in Ready condition</span>
+                      ) : !cand.hasEnoughCoins ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-2.5 py-1 rounded bg-zinc-800 text-amber-400 text-xs font-bold border border-amber-900/50 cursor-not-allowed"
+                        >
+                          Need {cand.cost} Coins
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onActivateInterrupt) {
+                              const actionToRun = cand.actions[0];
+                              onActivateInterrupt(cand.card, actionToRun);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-400 hover:to-amber-500 active:scale-95 text-black font-extrabold text-xs shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Zap className="w-3.5 h-3.5 fill-current" />
+                          <span>Seize Initiative &amp; Stop Attack</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Reaction Cards in Hand (Support / Intercept Cards playable out of turn) */}
       {reactionCards.length > 0 && !isOnlinePeerWaiting && (

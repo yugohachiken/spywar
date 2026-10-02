@@ -47,11 +47,14 @@ export const CardView: React.FC<CardViewProps> = ({
 
   const getBorderColor = () => {
     if (selected) {
+      if (selectionRole === 'attacker') {
+        return 'ring-2 ring-amber-400 border-amber-400 shadow-amber-500/40 shadow-xl animate-pulse';
+      }
       if (selectionRole === 'defender') {
-        return 'ring-2 ring-blue-400 border-blue-400 shadow-blue-500/30 shadow-lg';
+        return 'ring-2 ring-blue-400 border-blue-400 shadow-blue-500/40 shadow-xl animate-pulse';
       }
       if (selectionRole === 'target') {
-        return 'ring-2 ring-rose-500 border-rose-500 shadow-rose-500/30 shadow-lg animate-pulse';
+        return 'ring-2 ring-rose-500 border-rose-500 shadow-rose-500/40 shadow-xl animate-pulse';
       }
       if (selectionRole === 'benefit' || selectionRole === 'buff_target') {
         return 'ring-2 ring-emerald-400 border-emerald-400 shadow-emerald-500/40 shadow-lg animate-pulse';
@@ -82,18 +85,20 @@ export const CardView: React.FC<CardViewProps> = ({
       onFocus={() => setHighlightedItem(card)}
       onClick={onClick || (isPlayable ? onPlay : undefined)}
       className={`relative group select-none transition-all duration-200 rounded-lg p-2.5 flex flex-col justify-between bg-zinc-900/90 backdrop-blur-sm border outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${getBorderColor()} ${
-        isExhausted ? 'opacity-60 saturate-50 translate-y-0.5' : ''
+        isExhausted && !selected && !selectionRole ? 'opacity-60 saturate-50 translate-y-0.5' : isExhausted ? 'translate-y-0.5' : ''
       } ${compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'}`}
     >
       {/* Selection Role / Multi-Select Badge */}
       {selectionBadge && (
         <div className={`absolute -top-2.5 left-2 z-10 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider shadow-md ${
-          selectionRole === 'defender'
-            ? 'bg-blue-600 text-white border border-blue-400'
+          selectionRole === 'attacker'
+            ? 'bg-amber-500 text-zinc-950 border border-amber-300 ring-1 ring-amber-400/50 shadow-amber-950/40'
+            : selectionRole === 'defender'
+            ? 'bg-blue-600 text-white border border-blue-400 ring-1 ring-blue-300/50 shadow-blue-950/40'
             : selectionRole === 'target'
-            ? 'bg-rose-600 text-white border border-rose-400'
+            ? 'bg-rose-600 text-white border border-rose-400 ring-1 ring-rose-300/50 shadow-rose-950/40'
             : selectionRole === 'benefit' || selectionRole === 'buff_target'
-            ? 'bg-emerald-600 text-white border border-emerald-400 ring-1 ring-emerald-300'
+            ? 'bg-emerald-600 text-white border border-emerald-400 ring-1 ring-emerald-300 shadow-emerald-950/40'
             : 'bg-amber-500 text-zinc-950 border border-amber-300'
         }`}>
           {selectionBadge}

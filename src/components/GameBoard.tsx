@@ -32,6 +32,17 @@ interface InterruptWindowState {
   suspendedDefense?: PendingDefenseState | null;
 }
 
+interface RecentOperationState {
+  attackerPid: 'P1' | 'P2';
+  defenderPid: 'P1' | 'P2';
+  attackerCardIds: string[];
+  defenderCardIds: string[];
+  targetCardId?: string;
+  operationType: string;
+  description: string;
+  timestamp: number;
+}
+
 interface PendingTargetSelectionState {
   sourceCard: Card;
   promptTitle: string;
@@ -61,7 +72,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingDefense, setPendingDefense] = useState<PendingDefenseState | null>(null);
   const [interruptWindowState, setInterruptWindowState] = useState<InterruptWindowState | null>(null);
+  const [isGameStarted, setIsGameStarted] = useState(false);
+  const [recentOperation, setRecentOperation] = useState<RecentOperationState | null>(null);
   const autoAiTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recentOpTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Online Multiplayer State
   const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomDoc | null>(null);
@@ -91,7 +105,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const isMyTurn = isOnline
     ? (activePlayer.pid === myPid && multiplayerRoom?.status === 'playing')
-    : (!activePlayer.isAI);
+    : (isGameStarted && !activePlayer.isAI);
 
   const myPlayer = isOnline
     ? bottomPlayer
@@ -333,12 +347,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       if (autoAiTimerRef.current) {
         clearTimeout(autoAiTimerRef.current);
       }
+      if (recentOpTimerRef.current) {
+        clearTimeout(recentOpTimerRef.current);
+      }
     };
   }, []);
 
   // Auto-play watchdog effect
   useEffect(() => {
-    if (autoAi && !engine.gameOver && !aiThinking && !pendingDefense && !interruptWindowState) {
+    if (isGameStarted && autoAi && !engine.gameOver && !aiThinking && !pendingDefense && !interruptWindowState) {
       const currentActive = engine.getActivePlayer();
       // In Human vs AI, auto-play only executes when active player is AI (P2)!
       // In AI vs AI, auto-play executes for both P1 and P2
@@ -352,7 +369,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     return () => {
       if (autoAiTimerRef.current) clearTimeout(autoAiTimerRef.current);
     };
-  }, [autoAi, engine.activePlayerIndex, engine.actionCounter, engine.gameOver, aiThinking, aiSpeed, pendingDefense, interruptWindowState]);
+  }, [isGameStarted, autoAi, engine.activePlayerIndex, engine.actionCounter, engine.gameOver, aiThinking, aiSpeed, pendingDefense, interruptWindowState]);
 
   const isAttackAction = (action: Action): boolean => {
     if (action.type === 'DAN_WEAK_SACRIFICE') return true;
@@ -555,8 +572,45 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     return { threatType: 'ass' as const, threatName: 'Attack', attackPower: 1, attackerNames, isSpecialAbilityAttack };
   };
 
+  const recordRecentOperation = (
+    attackerPid: 'P1' | 'P2',
+    defenderPid: 'P1' | 'P2',
+    action: Action,
+    chosenDefenderIds: string[] = []
+  ) => {
+    if (!isAttackAction(action) && action.type !== 'OPERATIVE_ACTION') return;
+
+    const attackerCardIds = (action.attackerCards && action.attackerCards.length > 0)
+      ? action.attackerCards.map(c => c.id)
+      : (action.cardId ? [action.cardId] : (action.card ? [action.card.id] : []));
+
+    const defenderCardIds = chosenDefenderIds.length > 0
+      ? chosenDefenderIds
+      : (action.selectedDefenderIds || action.defenderCardIds || []);
+
+    const opState: RecentOperationState = {
+      attackerPid,
+      defenderPid,
+      attackerCardIds,
+      defenderCardIds,
+      targetCardId: action.targetId || action.targetCard?.id,
+      operationType: action.opType || 'operation',
+      description: action.desc || 'Operation conducted',
+      timestamp: Date.now()
+    };
+
+    setRecentOperation(opState);
+
+    if (recentOpTimerRef.current) {
+      clearTimeout(recentOpTimerRef.current);
+    }
+    recentOpTimerRef.current = setTimeout(() => {
+      setRecentOperation(null);
+    }, 3500);
+  };
+
   const executeAiStep = () => {
-    if (engine.gameOver || pendingDefense || interruptWindowState) return;
+    if (!isGameStarted || engine.gameOver || pendingDefense || interruptWindowState) return;
     const currentActive = engine.getActivePlayer();
     const currentOpp = engine.getOpponent();
 
@@ -587,6 +641,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           }
         }
 
+        if (isAttackAction(bestAction)) {
+          recordRecentOperation(currentActive.pid, currentOpp.pid, bestAction, []);
+        }
         engine.executeAction(currentActive, currentOpp, bestAction);
       } finally {
         setAiThinking(false);
@@ -766,6 +823,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   };
 
   const handleAction = (action: Action) => {
+    if (!isGameStarted && !isOnline) return;
     if (pendingDefense) return;
     setPendingTargetSelection(null);
 
@@ -900,6 +958,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       }
     }
 
+    if (isAttackAction(action)) {
+      recordRecentOperation(activePlayer.pid, opponent.pid, action, []);
+    }
     engine.executeAction(activePlayer, opponent, action);
     setSelectedCard(null);
     onRefresh();
@@ -907,6 +968,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const handleConfirmDefense = (chosenDefenderIds: string[], bonusDefense: number = 0) => {
     if (!pendingDefense) return;
+    recordRecentOperation(
+      pendingDefense.attacker.pid,
+      pendingDefense.defender.pid,
+      pendingDefense.action,
+      chosenDefenderIds
+    );
     engine.executeAction(
       pendingDefense.attacker,
       pendingDefense.defender,
@@ -929,13 +996,31 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     onRefresh();
   };
 
+  const handleStartGame = () => {
+    if (engine.gameOver || isGameStarted) return;
+    setIsGameStarted(true);
+    const active = engine.getActivePlayer();
+    engine.log(
+      active.pid,
+      'GAME-START',
+      `▶️ Match Started! ${active.name} (${active.pid}) has initiative for Round 1.`
+    );
+    onRefresh();
+  };
+
   // Manual Trigger: executes exactly 1 AI action and pauses so the user can inspect
   const handleManualTriggerAi = () => {
     if (engine.gameOver || aiThinking || pendingDefense) return;
+    if (!isGameStarted) {
+      setIsGameStarted(true);
+    }
     executeAiStep();
   };
 
   const handleResetGame = () => {
+    setIsGameStarted(false);
+    setRecentOperation(null);
+    if (recentOpTimerRef.current) clearTimeout(recentOpTimerRef.current);
     const shouldAuto = gameMode === 'human_vs_ai' || gameMode === 'ai_vs_ai';
     setAutoAi(shouldAuto);
     if (autoAiTimerRef.current) clearTimeout(autoAiTimerRef.current);
@@ -1273,10 +1358,32 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             id="btn-reset-match"
             onClick={handleResetGame}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors border border-zinc-700/60"
-            title="Reset Match"
+            title="Reset & Initialize Match"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reset
+          </button>
+
+          {/* START MATCH BUTTON */}
+          <button
+            id="btn-start-match"
+            onClick={handleStartGame}
+            disabled={engine.gameOver || isGameStarted}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all shadow-sm ${
+              !isGameStarted && !engine.gameOver
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/60 ring-2 ring-emerald-500/30'
+                : 'bg-zinc-800/60 text-zinc-500 border border-zinc-700/40 cursor-not-allowed opacity-60'
+            }`}
+            title={
+              isGameStarted
+                ? 'Match is currently in progress'
+                : engine.gameOver
+                ? 'Match concluded'
+                : `Start Match (${activePlayer.name} has initiative)`
+            }
+          >
+            <Play className={`w-3.5 h-3.5 ${!isGameStarted && !engine.gameOver ? 'fill-white text-white' : 'text-zinc-500'}`} />
+            <span>{isGameStarted ? 'Started' : 'Start'}</span>
           </button>
         </div>
       </div>
@@ -1309,8 +1416,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           )}
         </div>
 
-        {/* AI Action Status Banner */}
-        {activePlayer.isAI && !engine.gameOver && (
+        {/* Match Ready / Waiting to Start Banner */}
+        {!isGameStarted && !engine.gameOver ? (
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-400 text-[11px] font-mono flex items-center gap-1.5 font-semibold bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded-lg shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              Match Initialized &mdash; Click &quot;Start&quot; to begin ({activePlayer.name} has initiative)
+            </span>
+          </div>
+        ) : activePlayer.isAI && !engine.gameOver ? (
           <div className="flex items-center gap-2">
             {pendingDefense ? (
               <span className="text-amber-300 text-[11px] font-mono flex items-center gap-1.5 animate-pulse">
@@ -1336,7 +1450,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Game Over Banner */}
@@ -1522,55 +1636,170 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
         {/* Opponent Battlefield Cards */}
         <div className="flex items-center gap-2 overflow-x-auto py-1">
-          {topPlayer.affiliation && (
-            <CardView
-              card={topPlayer.affiliation}
-              compact
-              selected={selectedCombatTarget?.id === topPlayer.affiliation.id || selectedCard?.id === topPlayer.affiliation.id}
-              selectionRole={
-                selectedCombatTarget?.id === topPlayer.affiliation.id
-                  ? 'target'
-                  : undefined
-              }
-              selectionBadge={
-                selectedCombatTarget?.id === topPlayer.affiliation.id
-                  ? 'Target'
-                  : undefined
-              }
-              onClick={() => {
-                if (selectedAttackers.length > 0) {
-                  setSelectedCombatTarget(selectedCombatTarget?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
-                } else {
-                  setSelectedCard(selectedCard?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
-                }
-              }}
-            />
-          )}
+          {topPlayer.affiliation && (() => {
+            const isAffiliationTarget = selectedCombatTarget?.id === topPlayer.affiliation.id || (
+              pendingDefense &&
+              pendingDefense.defender.pid === topPlayer.pid &&
+              (pendingDefense.action.targetId === topPlayer.affiliation.id || pendingDefense.action.targetCard?.id === topPlayer.affiliation.id)
+            );
+            const isAffiliationAttacker = !!(
+              (pendingDefense &&
+                pendingDefense.attacker.pid === topPlayer.pid &&
+                (
+                  pendingDefense.action.cardId === topPlayer.affiliation.id ||
+                  pendingDefense.action.card?.id === topPlayer.affiliation.id ||
+                  (pendingDefense.action.attackerCards && pendingDefense.action.attackerCards.some(a => a.id === topPlayer.affiliation.id))
+                )
+              ) || (
+                !pendingDefense && !interruptWindowState &&
+                recentOperation &&
+                recentOperation.attackerPid === topPlayer.pid &&
+                recentOperation.attackerCardIds.includes(topPlayer.affiliation.id)
+              )
+            );
+            const isAffiliationDefender = !!(
+              (pendingDefense &&
+                pendingDefense.defender.pid === topPlayer.pid &&
+                pendingDefense.selectedDefenderIds.includes(topPlayer.affiliation.id)
+              ) || (
+                !pendingDefense && !interruptWindowState &&
+                recentOperation &&
+                recentOperation.defenderPid === topPlayer.pid &&
+                recentOperation.defenderCardIds.includes(topPlayer.affiliation.id)
+              )
+            );
+
+            let affRole: 'attacker' | 'defender' | 'target' | undefined = undefined;
+            let affBadge: string | undefined = undefined;
+
+            if (isAffiliationAttacker) {
+              affRole = 'attacker';
+              affBadge = pendingDefense ? '⚔️ Attacking' : '⚔️ Attacked';
+            } else if (isAffiliationDefender) {
+              affRole = 'defender';
+              affBadge = pendingDefense ? '🛡️ Defending' : '🛡️ Defended';
+            } else if (isAffiliationTarget) {
+              affRole = 'target';
+              affBadge = '🎯 Target';
+            }
+
+            return (
+              <CardView
+                card={topPlayer.affiliation}
+                compact
+                selected={isAffiliationTarget || isAffiliationAttacker || isAffiliationDefender || selectedCard?.id === topPlayer.affiliation.id}
+                selectionRole={affRole}
+                selectionBadge={affBadge}
+                onClick={() => {
+                  if (selectedAttackers.length > 0) {
+                    setSelectedCombatTarget(selectedCombatTarget?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
+                  } else {
+                    setSelectedCard(selectedCard?.id === topPlayer.affiliation.id ? null : topPlayer.affiliation);
+                  }
+                }}
+              />
+            );
+          })()}
           {topPlayer.battlefield.map(card => {
-            const isCombatTarget = selectedCombatTarget?.id === card.id;
-            const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === topPlayer.pid;
+            // (1) Target checks (targeted by combat planner or incoming operation):
+            const isCombatTarget = selectedCombatTarget?.id === card.id || (
+              pendingDefense &&
+              pendingDefense.defender.pid === topPlayer.pid &&
+              (pendingDefense.action.targetId === card.id || pendingDefense.action.targetCard?.id === card.id)
+            );
+
+            // (2) Opponent Operative ATTACKING in an active operation:
+            const isAttackingInPendingDefense = !!(
+              pendingDefense &&
+              pendingDefense.attacker.pid === topPlayer.pid &&
+              (
+                (pendingDefense.action.attackerCards && pendingDefense.action.attackerCards.some(a => a.id === card.id)) ||
+                pendingDefense.action.card?.id === card.id ||
+                pendingDefense.action.cardId === card.id
+              )
+            );
+
+            // (3) Opponent Operative suspended attacker during Interrupt Window:
+            const isSuspendedAttacker = !!(
+              interruptWindowState &&
+              interruptWindowState.attacker.pid === topPlayer.pid &&
+              (
+                (interruptWindowState.suspendedDefense?.action.attackerCards && interruptWindowState.suspendedDefense.action.attackerCards.some(a => a.id === card.id)) ||
+                interruptWindowState.suspendedDefense?.action.card?.id === card.id ||
+                interruptWindowState.suspendedDefense?.action.cardId === card.id
+              )
+            );
+
+            // (4) Opponent Operative executing an Interrupt ability:
+            const isInterruptAttacker = !!(
+              interruptWindowState &&
+              interruptWindowState.defender.pid === topPlayer.pid &&
+              interruptWindowState.sourceCard.id === card.id
+            );
+
+            // (5) Opponent Operative DEFENDING in an active operation:
+            const isDefendingInPendingDefense = !!(
+              pendingDefense &&
+              pendingDefense.defender.pid === topPlayer.pid &&
+              (
+                pendingDefense.selectedDefenderIds.includes(card.id) ||
+                (pendingDefense.action.selectedDefenderIds && pendingDefense.action.selectedDefenderIds.includes(card.id)) ||
+                (pendingDefense.action.defenderCardIds && pendingDefense.action.defenderCardIds.includes(card.id))
+              )
+            );
+
+            // (6) Recent Operation (Attacked or Defended within last 3.5s):
+            const isRecentAttacker = !pendingDefense && !interruptWindowState && !!(
+              recentOperation &&
+              recentOperation.attackerPid === topPlayer.pid &&
+              recentOperation.attackerCardIds.includes(card.id)
+            );
+
+            const isRecentDefender = !pendingDefense && !interruptWindowState && !!(
+              recentOperation &&
+              recentOperation.defenderPid === topPlayer.pid &&
+              recentOperation.defenderCardIds.includes(card.id)
+            );
+
+            const isAttacker = isAttackingInPendingDefense || isSuspendedAttacker || isInterruptAttacker || isRecentAttacker;
+            const isDefender = isDefendingInPendingDefense || isRecentDefender;
+
             const isEnemyTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
             const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
 
             let role: 'attacker' | 'defender' | 'target' | undefined = undefined;
             let badge: string | undefined = undefined;
-            if (isEnemyTargetCandidate) {
+
+            if (isAttacker) {
+              role = 'attacker';
+              if (isAttackingInPendingDefense) {
+                badge = '⚔️ Attacking';
+              } else if (isSuspendedAttacker) {
+                badge = '⚔️ Suspended Attacker';
+              } else if (isInterruptAttacker) {
+                badge = '⚡ Interrupt Operative';
+              } else {
+                badge = '⚔️ Attacked';
+              }
+            } else if (isDefender) {
+              role = 'defender';
+              badge = isDefendingInPendingDefense ? '🛡️ Defending' : '🛡️ Defended';
+            } else if (isEnemyTargetCandidate) {
               role = 'target';
               badge = candidateAct?.disabled ? 'Cannot Target' : '🎯 Target';
             } else if (isCombatTarget) {
               role = 'target';
-              badge = 'Target';
-            } else if (isDefender) {
-              role = 'defender';
-              badge = 'Defender';
+              badge = '🎯 Target';
             }
+
+            const isSelected = isAttacker || isDefender || isCombatTarget || selectedCard?.id === card.id || isEnemyTargetCandidate;
 
             return (
               <CardView
                 key={card.id}
                 card={card}
                 compact
-                selected={isCombatTarget || isDefender || selectedCard?.id === card.id || isEnemyTargetCandidate}
+                selected={isSelected}
                 selectionRole={role}
                 selectionBadge={badge}
                 onClick={() => {
@@ -1701,10 +1930,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               </span>
             </div>
             <button
-              disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing')}
+              disabled={!isMyTurn}
               onClick={() => handleAction({ type: 'PASS', desc: 'Pass turn' })}
               className={`px-3 py-1 text-xs font-mono rounded border transition-colors ${
-                isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing')
+                !isMyTurn
                   ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'
                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
               }`}
@@ -1771,9 +2000,40 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               />
             )}
             {bottomPlayer.battlefield.map(card => {
-              const isAttacker = selectedAttackers.some(a => a.id === card.id);
-              const isDefender = pendingDefense?.selectedDefenderIds.includes(card.id) && pendingDefense.defender.pid === bottomPlayer.pid;
-              const isTarget = selectedCombatTarget?.id === card.id;
+              const isAttackerSelection = selectedAttackers.some(a => a.id === card.id);
+              const isAttackerInPendingDefense = !!(
+                pendingDefense &&
+                pendingDefense.attacker.pid === bottomPlayer.pid &&
+                (
+                  (pendingDefense.action.attackerCards && pendingDefense.action.attackerCards.some(a => a.id === card.id)) ||
+                  pendingDefense.action.card?.id === card.id ||
+                  pendingDefense.action.cardId === card.id
+                )
+              );
+              const isDefenderInPendingDefense = !!(
+                pendingDefense &&
+                pendingDefense.defender.pid === bottomPlayer.pid &&
+                pendingDefense.selectedDefenderIds.includes(card.id)
+              );
+              const isTarget = selectedCombatTarget?.id === card.id || (
+                pendingDefense &&
+                pendingDefense.defender.pid === bottomPlayer.pid &&
+                (pendingDefense.action.targetId === card.id || pendingDefense.action.targetCard?.id === card.id)
+              );
+
+              const isRecentAttacker = !pendingDefense && !interruptWindowState && !!(
+                recentOperation &&
+                recentOperation.attackerPid === bottomPlayer.pid &&
+                recentOperation.attackerCardIds.includes(card.id)
+              );
+              const isRecentDefender = !pendingDefense && !interruptWindowState && !!(
+                recentOperation &&
+                recentOperation.defenderPid === bottomPlayer.pid &&
+                recentOperation.defenderCardIds.includes(card.id)
+              );
+
+              const isAttacker = isAttackerSelection || isAttackerInPendingDefense || isRecentAttacker;
+              const isDefender = isDefenderInPendingDefense || isRecentDefender;
 
               const isTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
               const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
@@ -1792,13 +2052,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 badge = '⚡ Interrupt Ready';
               } else if (isAttacker) {
                 role = 'attacker';
-                badge = 'Attacker';
+                badge = isAttackerInPendingDefense ? '⚔️ Attacking' : isRecentAttacker ? '⚔️ Attacked' : '⚔️ Attacker';
               } else if (isDefender) {
                 role = 'defender';
-                badge = 'Defender';
+                badge = isDefenderInPendingDefense ? '🛡️ Defending' : '🛡️ Defended';
               } else if (isTarget) {
                 role = 'target';
-                badge = 'Target';
+                badge = '🎯 Target';
               }
 
               return (
@@ -2197,7 +2457,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           onClearAttackers={clearCombatSelection}
           onExecuteAttack={handleExecuteMultiAttack}
           onDeployOperativeCrew={handleDeployOperativeCrew}
-          disabled={isOnline && (!isMyTurn || multiplayerRoom?.status !== 'playing') && !interruptWindowState}
+          disabled={!isMyTurn && !interruptWindowState}
         />
       )}
 
@@ -2401,13 +2661,34 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             <p className="text-zinc-200 font-semibold">Match Waiting Room</p>
             <p className="text-zinc-500 text-[11px]">Send the room code to your friend to begin your online espionage battle.</p>
           </div>
+        ) : !isGameStarted && !isOnline ? (
+          <div className="py-6 text-center text-xs font-mono text-zinc-400 flex flex-col items-center justify-center gap-2.5 bg-zinc-950/60 rounded-lg border border-zinc-800/80">
+            <div className="flex items-center gap-2">
+              <Play className="w-4 h-4 text-emerald-400 fill-emerald-400" />
+              <span className="text-zinc-200 font-semibold text-sm">Match Initialized &mdash; Ready to Play</span>
+            </div>
+            <p className="text-zinc-400 text-xs max-w-md">
+              <strong className="text-amber-300">{activePlayer.name} ({activePlayer.pid})</strong> has initiative for Round {engine.currentRound || 1}.
+              {activePlayer.isAI
+                ? ' The AI is on standby and will wait for you to click Start before playing.'
+                : ' You have initiative! Review the table, plan your moves, and click Start to begin.'}
+            </p>
+            <button
+              id="btn-start-game-deck-panel"
+              onClick={handleStartGame}
+              className="mt-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/40 transition-all flex items-center gap-2 border border-emerald-400/50 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              Start Match
+            </button>
+          </div>
         ) : !isMyTurn ? (
           <div className="py-6 text-center text-xs font-mono text-zinc-400 flex flex-col items-center justify-center gap-2 bg-zinc-950/60 rounded-lg border border-zinc-800">
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping" />
               <span className="text-zinc-200 font-semibold">{topPlayer.name} Turn in Progress</span>
             </div>
-            <p className="text-zinc-500 text-[11px]">Awaiting {topPlayer.name}'s operational command...</p>
+            <p className="text-zinc-500 text-[11px]">Awaiting {topPlayer.name}&apos;s operational command...</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">

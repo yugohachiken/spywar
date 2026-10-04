@@ -451,11 +451,11 @@ export class AbilityParserService {
     }
 
     // E. Skill Tokens (+1 ASS, RAID, SUB or choice of any)
-    if (lower.includes('skill token') || (lower.includes('subterfuge') && lower.includes('assassin') && lower.includes('raid')) || lower.includes('grant_skill_token')) {
+    if (lower.includes('skill token') || (lower.includes('subterfuge') && lower.includes('assassin') && lower.includes('raid')) || lower.includes('grant_skill_token') || presetConfig?.skillTokenOptions) {
       recognizedKeywords.push('Grant Skill Token (ASS / RAID / SUB)');
       effects.push({
         type: 'grant_token',
-        skillOptions: ['ass', 'raid', 'sub'],
+        skillOptions: presetConfig?.skillTokenOptions || ['ass', 'raid', 'sub'],
         amount: 1
       });
       if (targetType === 'none') targetType = 'friendly_op';

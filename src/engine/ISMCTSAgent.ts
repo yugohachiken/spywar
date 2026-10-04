@@ -39,9 +39,20 @@ export class MCTSNode {
 
 export class ISMCTSAgent {
   iterations: number;
+  rolloutDepth: number;
 
-  constructor(iterations: number = 40) {
+  constructor(iterations: number = 120, rolloutDepth: number = 4) {
     this.iterations = iterations;
+    this.rolloutDepth = rolloutDepth;
+  }
+
+  getEffectiveRolloutDepth(): number {
+    if (this.rolloutDepth) return this.rolloutDepth;
+    if (this.iterations <= 30) return 2;
+    if (this.iterations <= 80) return 3;
+    if (this.iterations <= 200) return 4;
+    if (this.iterations <= 400) return 5;
+    return 6;
   }
 
   getBestAction(engine: SpywarEngine, activePlayer: Player, opponent: Player): Action {
@@ -60,8 +71,19 @@ export class ISMCTSAgent {
       return tapProd;
     }
 
+    // Casual/Novice blunder heuristic for very low difficulty (iterations <= 30)
+    if (this.iterations <= 30 && legalActions.length > 1) {
+      const blunderChance = this.iterations <= 15 ? 0.20 : 0.08;
+      if (Math.random() < blunderChance) {
+        const nonPass = legalActions.filter(a => a.type !== 'PASS');
+        const pool = nonPass.length > 0 ? nonPass : legalActions;
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+    }
+
     const root = new MCTSNode(null, null, activePlayer.pid);
     root.untriedActions = [...legalActions];
+    const maxRolloutDepth = this.getEffectiveRolloutDepth();
 
     for (let iter = 0; iter < this.iterations; iter++) {
       // 1. Determinization: Clone state and shuffle hidden information (opponent hand + draw deck)
@@ -92,7 +114,7 @@ export class ISMCTSAgent {
 
       // 4. Rollout (lightweight random simulation)
       let depth = 0;
-      while (depth < 4 && !simEngine.gameOver) {
+      while (depth < maxRolloutDepth && !simEngine.gameOver) {
         const acts = simEngine.getLegalActions(simPlayer, simOpp);
         if (!acts || acts.length === 0) break;
         // Prioritize non-pass actions in rollout so AI explores proactive plays
@@ -105,11 +127,20 @@ export class ISMCTSAgent {
       }
 
       // 5. Evaluation & Backpropagation
-      let reward = (simPlayer.mission_points - simOpp.mission_points) * 10;
+      let reward = (simPlayer.mission_points - simOpp.mission_points) * 12;
       for (const m of simEngine.missionsOnTable) {
-        reward += ((m.tokens[simPlayer.pid] || 0) - (m.tokens[simOpp.pid] || 0)) * 2;
+        const myTokens = m.tokens[simPlayer.pid] || 0;
+        const oppTokens = m.tokens[simOpp.pid] || 0;
+        reward += (myTokens - oppTokens) * 3;
+        if (myTokens >= m.req) reward += (m.points || 1) * 8;
+        if (oppTokens >= m.req) reward -= (m.points || 1) * 8;
       }
       reward += (simEngine.getTotalSpendableCoins(simPlayer) - simEngine.getTotalSpendableCoins(simOpp)) * 0.5;
+
+      // Field presence evaluation (rewarding ready operatives)
+      const myOps = simPlayer.battlefield.filter(c => c.type === 'Operative');
+      const oppOps = simOpp.battlefield.filter(c => c.type === 'Operative');
+      reward += (myOps.length - oppOps.length) * 1.5;
 
       let curr: MCTSNode | null = node;
       while (curr) {

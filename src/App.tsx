@@ -11,18 +11,34 @@ import { AFFILIATION_CARDS, LOCATION_CARDS, OPERATIVE_CARDS, SUPPORT_CARDS, MAST
 import { Shield, Swords, FileCode, BarChart3, BookOpen, Sparkles, Terminal, Activity, ZoomIn, Layers, Edit3 } from 'lucide-react';
 import { CardZoomProvider } from './context/CardZoomContext';
 import { ZoomedCardModal } from './components/ZoomedCardModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'board' | 'deck' | 'editor' | 'testlab' | 'godot' | 'batch' | 'dossier'>('board');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Initialize engine once with active deck configuration and saved game config
+  // Initialize engine once with active deck configuration and saved game config,
+  // restoring any ongoing match session so browser updates/refreshes never lose match state
   const engine = useMemo(() => {
     const cardDb = CardDatabaseService.getInstance();
     const savedConfig = cardDb.getGameConfig();
     const inst = new SpywarEngine(savedConfig);
     const deckData = cardDb.generateGameDeckForEngine();
     inst.setGameMode('human_vs_ai');
+
+    try {
+      const savedSession = localStorage.getItem('spywar_active_match_session');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed && typeof parsed.currentRound === 'number' && parsed.currentRound > 0 && !parsed.gameOver) {
+          inst.loadSerializedState(parsed);
+          return inst;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not restore saved match session:', e);
+    }
+
     inst.setupGame({
       ...deckData,
       deckName: cardDb.getActiveDeck().name
@@ -31,6 +47,13 @@ export default function App() {
   }, []);
 
   const handleRefresh = () => {
+    if (engine.currentRound > 0 && !engine.gameOver) {
+      try {
+        localStorage.setItem('spywar_active_match_session', JSON.stringify(engine.getSerializedState()));
+      } catch (e) {
+        // storage fallback
+      }
+    }
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -40,6 +63,7 @@ export default function App() {
     missions: any[];
     deckName: string;
   }) => {
+    localStorage.removeItem('spywar_active_match_session');
     engine.setupGame(customDeckPayload);
     setActiveTab('board');
     handleRefresh();
@@ -161,14 +185,16 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full">
-        {activeTab === 'board' && (
-          <GameBoard 
-            engine={engine} 
-            onRefresh={handleRefresh} 
-            onNavigateToDeckBuilder={() => setActiveTab('deck')}
-            onNavigateToCardEditor={() => setActiveTab('editor')}
-          />
-        )}
+        <div style={{ display: activeTab === 'board' ? 'block' : 'none' }}>
+          <ErrorBoundary>
+            <GameBoard 
+              engine={engine} 
+              onRefresh={handleRefresh} 
+              onNavigateToDeckBuilder={() => setActiveTab('deck')}
+              onNavigateToCardEditor={() => setActiveTab('editor')}
+            />
+          </ErrorBoundary>
+        </div>
 
         {activeTab === 'deck' && (
           <DeckBuilder

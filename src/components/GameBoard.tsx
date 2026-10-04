@@ -3,7 +3,7 @@ import { SpywarEngine, DEFAULT_CONFIG } from '../engine/SpywarEngine';
 import { ISMCTSAgent } from '../engine/ISMCTSAgent';
 import { CardView } from './CardView';
 import { Action, Card, GameMode, Player, MultiplayerRoomDoc, RoomDefenseData } from '../types/spywar';
-import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap, Target, Sword, Plus, Minus } from 'lucide-react';
+import { Play, RotateCcw, Bot, Shield, Coins, Sparkles, ChevronRight, Activity, User, Users, Pause, Download, SlidersHorizontal, Check, AlertTriangle, Globe, Copy, Link as LinkIcon, Loader2, LogOut, ZoomIn, Layers, Zap, Target, Sword, Plus, Minus, Brain } from 'lucide-react';
 import { MultiplayerLobbyModal } from './MultiplayerLobbyModal';
 import { CombatPlanner, CombatOperationType } from './CombatPlanner';
 import { InlineDefensePanel } from './InlineDefensePanel';
@@ -11,6 +11,120 @@ import { subscribeToMultiplayerRoom, syncRoomState, deleteMultiplayerRoom } from
 import { useCardZoom } from '../context/CardZoomContext';
 import { CardDatabaseService } from '../services/cardDatabaseService';
 import { AbilityParserService } from '../services/abilityParserService';
+
+export interface AiDifficultyConfig {
+  level: number;
+  name: string;
+  shortName: string;
+  emoji: string;
+  iterations: number;
+  shortDescription: string;
+  description: string;
+  colorClass: string;
+}
+
+export const AI_DIFFICULTY_LEVELS: AiDifficultyConfig[] = [
+  {
+    level: 1,
+    name: 'Novice',
+    shortName: 'Novice',
+    emoji: '🌱',
+    iterations: 15,
+    shortDescription: 'Basic casual play',
+    description: '15 MCTS branches. Quick, shallow lookahead, prone to tactical blunders and missed synergies.',
+    colorClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
+  },
+  {
+    level: 2,
+    name: 'Apprentice',
+    shortName: 'Apprentice',
+    emoji: '🎯',
+    iterations: 30,
+    shortDescription: 'Light tactical search',
+    description: '30 MCTS branches. Basic short-term planning and simple attack combos.',
+    colorClass: 'bg-emerald-950/70 text-emerald-300 border-emerald-600/50'
+  },
+  {
+    level: 3,
+    name: 'Cadet',
+    shortName: 'Cadet',
+    emoji: '🕵️',
+    iterations: 50,
+    shortDescription: 'Steady tactical awareness',
+    description: '50 MCTS branches. Casual play with steady resource development and defensive awareness.',
+    colorClass: 'bg-teal-950/70 text-teal-300 border-teal-600/50'
+  },
+  {
+    level: 4,
+    name: 'Operative',
+    shortName: 'Operative',
+    emoji: '💼',
+    iterations: 80,
+    shortDescription: 'Balanced field tactics',
+    description: '80 MCTS branches. Competent field agent with balanced raid, assassination, and defense tactics.',
+    colorClass: 'bg-cyan-950/70 text-cyan-300 border-cyan-600/50'
+  },
+  {
+    level: 5,
+    name: 'Veteran',
+    shortName: 'Veteran',
+    emoji: '🎖️',
+    iterations: 120,
+    shortDescription: 'Multi-turn coordination',
+    description: '120 MCTS branches (Default). Solid multi-turn planning, crew synergies, and target prioritization.',
+    colorClass: 'bg-blue-950/70 text-blue-300 border-blue-500/60'
+  },
+  {
+    level: 6,
+    name: 'Commander',
+    shortName: 'Commander',
+    emoji: '⚔️',
+    iterations: 180,
+    shortDescription: 'Deep tree rollouts',
+    description: '180 MCTS branches. Deeper branch exploration anticipating player counters and interrupts.',
+    colorClass: 'bg-indigo-950/80 text-indigo-300 border-indigo-500/60'
+  },
+  {
+    level: 7,
+    name: 'Mastermind',
+    shortName: 'Mastermind',
+    emoji: '🧠',
+    iterations: 260,
+    shortDescription: 'High tactical depth',
+    description: '260 MCTS branches. High-depth foresight targeting resource starvation, mission leads, and lethal strikes.',
+    colorClass: 'bg-purple-950/80 text-purple-300 border-purple-500/70'
+  },
+  {
+    level: 8,
+    name: 'Grandmaster',
+    shortName: 'Grandmaster',
+    emoji: '👑',
+    iterations: 380,
+    shortDescription: 'Extensive tree search',
+    description: '380 MCTS branches. Heavy branch exploration optimizing complex victory conditions and defense teams.',
+    colorClass: 'bg-fuchsia-950/80 text-fuchsia-300 border-fuchsia-500/70 shadow-sm'
+  },
+  {
+    level: 9,
+    name: 'Deep Spy',
+    shortName: 'Deep Spy',
+    emoji: '👁️',
+    iterations: 520,
+    shortDescription: 'Deep multi-ply lookahead',
+    description: '520 MCTS branches. Deep tree rollout across multiple hidden-card determinizations for high winrates.',
+    colorClass: 'bg-rose-950/90 text-rose-300 border-rose-500 shadow-sm'
+  },
+  {
+    level: 10,
+    name: 'Apex Engine',
+    shortName: 'Apex',
+    emoji: '⚡',
+    iterations: 750,
+    shortDescription: 'Maximum Monte Carlo depth',
+    description: '750 MCTS branches. Maximum Monte Carlo branch depth for near-optimal espionage execution.',
+    colorClass: 'bg-amber-950/95 text-amber-300 border-amber-400 shadow-md ring-1 ring-amber-400/30 animate-pulse'
+  }
+];
 
 interface PendingDefenseState {
   attacker: Player;
@@ -69,13 +183,38 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const [autoAi, setAutoAi] = useState(true);
   const [gameMode, setGameMode] = useState<GameMode>('human_vs_ai');
   const [aiSpeed, setAiSpeed] = useState<number>(450); // ms delay between AI actions
+  const [aiDifficulty, setAiDifficulty] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('spywar_ai_difficulty');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 1 && val <= 10) return val;
+      }
+    } catch {
+      // fallback
+    }
+    return 5; // Default Level 5 (Veteran - 120 branches)
+  });
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingDefense, setPendingDefense] = useState<PendingDefenseState | null>(null);
   const [interruptWindowState, setInterruptWindowState] = useState<InterruptWindowState | null>(null);
-  const [isGameStarted, setIsGameStarted] = useState(false);
+  const [isGameStarted, setIsGameStarted] = useState(engine.currentRound > 0);
   const [recentOperation, setRecentOperation] = useState<RecentOperationState | null>(null);
   const autoAiTimerRef = useRef<NodeJS.Timeout | null>(null);
   const recentOpTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-save active match state to session storage so reloads or code updates never cause a sudden reset
+  useEffect(() => {
+    if (!engine.gameOver && engine.currentRound > 0) {
+      try {
+        localStorage.setItem('spywar_active_match_session', JSON.stringify(engine.getSerializedState()));
+      } catch (e) {
+        // storage fallback
+      }
+    } else if (engine.gameOver) {
+      localStorage.removeItem('spywar_active_match_session');
+    }
+  }, [engine.actionCounter, engine.currentRound, engine.gameOver, isGameStarted]);
 
   // Online Multiplayer State
   const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomDoc | null>(null);
@@ -211,7 +350,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     return list;
   }, [bottomPlayer.affiliation, bottomPlayer.battlefield, bottomPlayer.hand, offTurnSpendable, interruptActions]);
 
-  const mctsAgent = useRef(new ISMCTSAgent(engine.config.rounds * 10)).current;
+  const currentDiffConfig = useMemo(() => {
+    return AI_DIFFICULTY_LEVELS.find(l => l.level === aiDifficulty) || AI_DIFFICULTY_LEVELS[4];
+  }, [aiDifficulty]);
+
+  const mctsAgentRef = useRef(new ISMCTSAgent(currentDiffConfig.iterations));
+
+  // Dynamically update MCTS agent branch iterations and rollout depth when difficulty changes
+  useEffect(() => {
+    if (mctsAgentRef.current) {
+      mctsAgentRef.current.iterations = currentDiffConfig.iterations;
+      mctsAgentRef.current.rolloutDepth = currentDiffConfig.level >= 8 ? 5 : currentDiffConfig.level <= 2 ? 2 : 4;
+    }
+  }, [currentDiffConfig]);
 
   // Auto-detect ?room=SPYxxx in URL parameters
   useEffect(() => {
@@ -240,7 +391,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           const attacker = engine.players.find(p => p.pid === defData.attackerPid) || engine.players[0];
           const defender = engine.players.find(p => p.pid === defData.defenderPid) || engine.players[1];
           const readyOps = defender.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-          const recommended = engine.selectAiDefenders(defender, defData.threatType, defData.incomingAttack);
+          const recommended = engine.selectAiDefenders(defender, defData.threatType, defData.incomingAttack, defData.action.targetCard);
 
           setPendingDefense({
             attacker,
@@ -617,14 +768,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
     setAiThinking(true);
     setTimeout(() => {
       try {
-        const bestAction = mctsAgent.getBestAction(engine, currentActive, currentOpp);
+        const bestAction = mctsAgentRef.current.getBestAction(engine, currentActive, currentOpp);
         
         // If AI is attacking a human player who can react or defend, trigger defense assignment prompt!
         if (isAttackAction(bestAction) && !currentOpp.isAI) {
           const attackInfo = getIncomingAttackInfo(bestAction);
           if (canDefenderReactOrDefend(currentOpp, attackInfo.isSpecialAbilityAttack)) {
             const readyOps = currentOpp.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-            const recommended = engine.selectAiDefenders(currentOpp, attackInfo.threatType, attackInfo.attackPower);
+            const recommended = engine.selectAiDefenders(currentOpp, attackInfo.threatType, attackInfo.attackPower, bestAction.targetCard);
             setPendingDefense({
               attacker: currentActive,
               defender: currentOpp,
@@ -940,7 +1091,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
       const attackInfo = getIncomingAttackInfo(action);
       if (canDefenderReactOrDefend(opponent, attackInfo.isSpecialAbilityAttack)) {
         const readyOps = opponent.battlefield.filter(c => c.type === 'Operative' && !c.exhausted);
-        const recommended = engine.selectAiDefenders(opponent, attackInfo.threatType, attackInfo.attackPower);
+        const recommended = engine.selectAiDefenders(opponent, attackInfo.threatType, attackInfo.attackPower, action.targetCard);
         setPendingDefense({
           attacker: activePlayer,
           defender: opponent,
@@ -1018,6 +1169,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   };
 
   const handleResetGame = () => {
+    localStorage.removeItem('spywar_active_match_session');
     setIsGameStarted(false);
     setRecentOperation(null);
     if (recentOpTimerRef.current) clearTimeout(recentOpTimerRef.current);
@@ -1289,6 +1441,60 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             </div>
           )}
 
+          {/* AI DIFFICULTY / MCTS BRANCH COMPUTATION CONTROL WITH +/- BUTTONS */}
+          {(gameMode === 'human_vs_ai' || gameMode === 'ai_vs_ai' || autoAi) && (
+            <div className="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px] font-mono shadow-sm">
+              <span className="text-zinc-400 font-semibold flex items-center gap-1">
+                <Brain className="w-3.5 h-3.5 text-indigo-400" />
+                AI Skill:
+              </span>
+              <button
+                type="button"
+                disabled={aiDifficulty <= 1}
+                onClick={() => {
+                  const next = Math.max(1, aiDifficulty - 1);
+                  setAiDifficulty(next);
+                  try { localStorage.setItem('spywar_ai_difficulty', String(next)); } catch {}
+                }}
+                className={`px-2 py-0.5 flex items-center gap-1 rounded font-bold transition-all border ${
+                  aiDifficulty <= 1
+                    ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed opacity-50'
+                    : 'bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 hover:text-white cursor-pointer border-zinc-700 hover:border-amber-500/50'
+                }`}
+                title="Easier (-) — Reduce Monte Carlo tree rollout branches (down to 15 branches)"
+              >
+                <Minus className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Easier</span>
+              </button>
+
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${currentDiffConfig.colorClass}`}
+                title={`AI Difficulty Lv.${currentDiffConfig.level}/10 (${currentDiffConfig.name}): ${currentDiffConfig.description}`}
+              >
+                {currentDiffConfig.emoji} Lv.{currentDiffConfig.level} {currentDiffConfig.shortName} ({currentDiffConfig.iterations} br)
+              </span>
+
+              <button
+                type="button"
+                disabled={aiDifficulty >= 10}
+                onClick={() => {
+                  const next = Math.min(10, aiDifficulty + 1);
+                  setAiDifficulty(next);
+                  try { localStorage.setItem('spywar_ai_difficulty', String(next)); } catch {}
+                }}
+                className={`px-2 py-0.5 flex items-center gap-1 rounded font-bold transition-all border ${
+                  aiDifficulty >= 10
+                    ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed opacity-50'
+                    : 'bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 hover:text-white cursor-pointer border-zinc-700 hover:border-emerald-500/50'
+                }`}
+                title="Harder (+) — Increase Monte Carlo tree rollout branches (up to 750 branches)"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Harder</span>
+              </button>
+            </div>
+          )}
+
           {/* MANUAL SINGLE-STEP TRIGGER AI MOVE (Active when it's AI turn) */}
           {activePlayer.isAI && (
             <button
@@ -1434,7 +1640,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             ) : autoAi ? (
               <span className="text-indigo-300 text-[11px] font-mono flex items-center gap-1.5 animate-pulse">
                 <Bot className="w-3.5 h-3.5 text-indigo-400" />
-                AI ({activePlayer.pid}) is executing turn...
+                AI ({activePlayer.pid}) exploring {currentDiffConfig.iterations} MCTS branches (Lv.{currentDiffConfig.level} {currentDiffConfig.shortName})...
               </span>
             ) : (
               <div className="flex items-center gap-2">
@@ -1952,53 +2158,70 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto py-1">
-            {bottomPlayer.affiliation && (
-              <CardView
-                card={bottomPlayer.affiliation}
-                selected={selectedCard?.id === bottomPlayer.affiliation.id || pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation.id}
-                isPlayable={!bottomPlayer.affiliation.exhausted && (!isOnline || isMyTurn)}
-                playLabel={bottomPlayer.affiliation.name === 'M.I.C.A.' ? 'Grant Tech Token' : 'Activate'}
-                onPlay={() => {
-                  const targetActs = legalActions.filter(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
-                  if (targetActs.length > 0) {
-                    setSelectedCard(bottomPlayer.affiliation);
-                    setPendingTargetSelection({
-                      sourceCard: bottomPlayer.affiliation,
-                      promptTitle: `${bottomPlayer.affiliation.name}: Bestow +1/+1 Tech Token`,
-                      promptDescription: `Select which Operative in play will receive the +1/+1 Tech token:`,
-                      effectType: 'tech_token',
-                      actions: targetActs
-                    });
-                    return;
-                  }
-                  const directAct = legalActions.find(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id);
-                  if (directAct) handleAction(directAct);
-                }}
-                onClick={() => {
-                  if (pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation?.id) {
-                    setPendingTargetSelection(null);
-                    setSelectedCard(null);
-                    return;
-                  }
-                  const isToggleOff = selectedCard?.id === bottomPlayer.affiliation.id;
-                  setSelectedCard(isToggleOff ? null : bottomPlayer.affiliation);
-                  if (!isToggleOff && !bottomPlayer.affiliation.exhausted) {
-                    const targetActs = legalActions.filter(a => a.type === 'TAP_ABILITY' && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
+            {bottomPlayer.affiliation && (() => {
+              const isTech = bottomPlayer.affiliation.specialAbility === 'buff_tech_token' || bottomPlayer.affiliation.specialAbility === 'grant_tech_token' || bottomPlayer.affiliation.name === 'M.I.C.A.';
+              const isSkill = bottomPlayer.affiliation.specialAbility === 'buff_skill' || bottomPlayer.affiliation.specialAbility === 'grant_skill_token' || bottomPlayer.affiliation.name.includes('MI6');
+              const promptTitle = isSkill
+                ? `${bottomPlayer.affiliation.name}: Bestow Skill Token`
+                : isTech
+                ? `${bottomPlayer.affiliation.name}: Bestow +1/+1 Tech Token`
+                : `${bottomPlayer.affiliation.name}: Select Target`;
+              const promptDescription = isSkill
+                ? `Select which Operative in play will receive the +1 Skill token (Assassination, Raid, or Subterfuge):`
+                : isTech
+                ? `Select which Operative in play will receive the +1/+1 Tech token:`
+                : `Select which Operative in play will receive the benefit:`;
+              const effectType = isSkill ? 'skill_token' : 'tech_token';
+              const playLabel = isSkill ? 'Grant Skill Token' : isTech ? 'Grant Tech Token' : 'Activate';
+
+              return (
+                <CardView
+                  card={bottomPlayer.affiliation}
+                  selected={selectedCard?.id === bottomPlayer.affiliation.id || pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation.id}
+                  isPlayable={!bottomPlayer.affiliation.exhausted && (!isOnline || isMyTurn)}
+                  playLabel={playLabel}
+                  onPlay={() => {
+                    const targetActs = legalActions.filter(a => (a.type === 'TAP_ABILITY' || a.type === 'DYNAMIC_ABILITY') && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
                     if (targetActs.length > 0) {
+                      setSelectedCard(bottomPlayer.affiliation);
                       setPendingTargetSelection({
                         sourceCard: bottomPlayer.affiliation,
-                        promptTitle: `${bottomPlayer.affiliation.name}: Bestow +1/+1 Tech Token`,
-                        promptDescription: `Select which Operative in play will receive the +1/+1 Tech token:`,
-                        effectType: 'tech_token',
+                        promptTitle,
+                        promptDescription,
+                        effectType,
                         actions: targetActs
                       });
                       return;
                     }
-                  }
-                  setPendingTargetSelection(null);
-                }}
-              />
-            )}
+                    const directAct = legalActions.find(a => (a.type === 'TAP_ABILITY' || a.type === 'DYNAMIC_ABILITY') && a.cardId === bottomPlayer.affiliation?.id);
+                    if (directAct) handleAction(directAct);
+                  }}
+                  onClick={() => {
+                    if (pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation?.id) {
+                      setPendingTargetSelection(null);
+                      setSelectedCard(null);
+                      return;
+                    }
+                    const isToggleOff = selectedCard?.id === bottomPlayer.affiliation.id;
+                    setSelectedCard(isToggleOff ? null : bottomPlayer.affiliation);
+                    if (!isToggleOff && !bottomPlayer.affiliation.exhausted) {
+                      const targetActs = legalActions.filter(a => (a.type === 'TAP_ABILITY' || a.type === 'DYNAMIC_ABILITY') && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
+                      if (targetActs.length > 0) {
+                        setPendingTargetSelection({
+                          sourceCard: bottomPlayer.affiliation,
+                          promptTitle,
+                          promptDescription,
+                          effectType,
+                          actions: targetActs
+                        });
+                        return;
+                      }
+                    }
+                    setPendingTargetSelection(null);
+                  }}
+                />
+              );
+            })()}
             {bottomPlayer.battlefield.map(card => {
               const isAttackerSelection = selectedAttackers.some(a => a.id === card.id);
               const isAttackerInPendingDefense = !!(
@@ -2035,8 +2258,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const isAttacker = isAttackerSelection || isAttackerInPendingDefense || isRecentAttacker;
               const isDefender = isDefenderInPendingDefense || isRecentDefender;
 
-              const isTargetCandidate = pendingTargetSelection?.actions.some(a => a.targetId === card.id);
-              const candidateAct = pendingTargetSelection?.actions.find(a => a.targetId === card.id);
+              const cardActs = pendingTargetSelection?.actions.filter(a => a.targetId === card.id) || [];
+              const hasEligibleAct = cardActs.some(a => !a.disabled);
+              const allActsDisabled = cardActs.length > 0 && cardActs.every(a => a.disabled);
 
               const isOffTurnDef = !isMyTurn && !pendingDefense && !interruptWindowState;
               const offTurnCand = isOffTurnDef ? offTurnInterruptCandidates.find(c => c.card.id === card.id) : null;
@@ -2044,9 +2268,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
               let role: 'attacker' | 'defender' | 'target' | 'buff_target' | undefined = undefined;
               let badge: string | undefined = undefined;
-              if (isTargetCandidate) {
+              if (hasEligibleAct) {
                 role = 'buff_target';
-                badge = candidateAct?.disabled ? 'Cannot Receive' : '🎯 Beneficiary';
+                badge = '🎯 Beneficiary';
+              } else if (allActsDisabled) {
+                role = undefined;
+                badge = 'Cannot Receive';
               } else if (isOffTurnInterruptEligible) {
                 role = 'attacker';
                 badge = '⚡ Interrupt Ready';
@@ -2065,7 +2292,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
-                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || isTargetCandidate || isOffTurnInterruptEligible}
+                  selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || hasEligibleAct || isOffTurnInterruptEligible}
                   selectionRole={role}
                   selectionBadge={badge}
                   onClick={(e) => {
@@ -2603,22 +2830,37 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                         }}
                         className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-between ${
                           act.disabled
-                            ? 'bg-zinc-800/60 text-zinc-500 cursor-not-allowed border border-zinc-800'
+                            ? 'bg-zinc-800/60 text-zinc-500 cursor-not-allowed border border-zinc-800 opacity-60'
                             : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md border border-emerald-400/50'
                         }`}
                       >
-                        <span>
-                          {act.subChoice === 'buff_off' ? 'Select: +1 Offense' :
-                           act.subChoice === 'buff_def' ? 'Select: +1 Defense' :
-                           act.subChoice === 'buff_attack_team' ? 'Give +2 OFF to Attack Team' :
-                           act.subChoice === 'buff_defense_team' ? 'Give +2 DEF to Defense Team' :
-                           act.subChoice === 'assemble_strike' ? 'Give +2 Offense' :
-                           act.subChoice === 'assemble_defense' ? 'Give +2 Defense' :
-                           act.subChoice === 'buff_tech_token' ? `Select ${targetCard.name} (+1/+1 Tech)` :
-                           act.desc.includes('[') && act.desc.includes(']') ? `Select: ${act.desc.substring(act.desc.indexOf('[') + 1, act.desc.lastIndexOf(']'))}` :
-                           `Select ${targetCard.name}`}
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            {act.subChoice === 'buff_ass' || act.subChoice === 'token_ass' || act.subChoice === 'ass' ? '🗡️ +1 Assassination Skill' :
+                             act.subChoice === 'buff_raid' || act.subChoice === 'token_raid' || act.subChoice === 'raid' ? '💰 +1 Raid Skill' :
+                             act.subChoice === 'buff_sub' || act.subChoice === 'token_sub' || act.subChoice === 'sub' ? '🕵️ +1 Subterfuge Skill' :
+                             act.subChoice === 'buff_off' ? 'Select: +1 Offense' :
+                             act.subChoice === 'buff_def' ? 'Select: +1 Defense' :
+                             act.subChoice === 'buff_attack_team' ? 'Give +2 OFF to Attack Team' :
+                             act.subChoice === 'buff_defense_team' ? 'Give +2 DEF to Defense Team' :
+                             act.subChoice === 'assemble_strike' ? 'Give +2 Offense' :
+                             act.subChoice === 'assemble_defense' ? 'Give +2 Defense' :
+                             act.subChoice === 'buff_tech_token' || act.subChoice === 'token_tech' ? `💻 +1/+1 Tech Token` :
+                             act.subChoice === 'token_weapon' ? `🔫 +1/+1 Weapon Token` :
+                             act.subChoice === 'token_suit' ? `🥋 +1/+1 Suit Token` :
+                             act.subChoice === 'token_power_armor' || act.subChoice === 'token_powered_armor' ? `🛡️ +1/+1 Power Armor Token` :
+                             act.subChoice === 'token_power_suit' ? `🦾 +1/+1 Power Suit Token` :
+                             act.subChoice === 'token_discard' ? `🗑️ Discard Token` :
+                             act.desc.includes('[') && act.desc.includes(']') ? `Select: ${act.desc.substring(act.desc.indexOf('[') + 1, act.desc.lastIndexOf(']'))}` :
+                             `Select ${targetCard.name}`}
+                          </span>
+                          {act.disabled && (
+                            <span className="text-[10px] text-rose-300/80 font-normal">
+                              ({act.disabledReason || 'Unavailable'})
+                            </span>
+                          )}
                         </span>
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
                       </button>
                     ))}
                   </div>
@@ -3028,6 +3270,87 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                     }`}
                   >
                     3. Random Coin
+                  </button>
+                </div>
+              </div>
+
+              {/* 11. AI Skill & ISMCTS Monte Carlo Tree Branches (Levels 1 - 10) */}
+              <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-zinc-950/60 border border-zinc-800/80">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Brain className="w-4 h-4 text-indigo-400" />
+                    <div>
+                      <span className="font-semibold text-zinc-200">11. AI Skill &amp; ISMCTS Branch Depth</span>
+                      <p className="text-zinc-400 text-[11px]">Monte Carlo Tree Search exploration branches per turn</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${currentDiffConfig.colorClass}`}>
+                    {currentDiffConfig.emoji} Lv.{currentDiffConfig.level} {currentDiffConfig.name} ({currentDiffConfig.iterations} br)
+                  </span>
+                </div>
+                <p className="text-zinc-400 text-[11px] bg-zinc-900/60 p-2 rounded border border-zinc-800/60">
+                  {currentDiffConfig.description}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1">
+                  {AI_DIFFICULTY_LEVELS.map(lvl => (
+                    <button
+                      key={lvl.level}
+                      type="button"
+                      onClick={() => {
+                        setAiDifficulty(lvl.level);
+                        try { localStorage.setItem('spywar_ai_difficulty', String(lvl.level)); } catch {}
+                      }}
+                      className={`px-1.5 py-1.5 rounded text-[11px] font-mono transition-all text-center border ${
+                        aiDifficulty === lvl.level
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-400 shadow-sm ring-1 ring-indigo-400/40'
+                          : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border-zinc-800 hover:border-zinc-700'
+                      }`}
+                    >
+                      {lvl.emoji} Lv.{lvl.level} {lvl.shortName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 12. Skill Token Stacking Rule */}
+              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-zinc-950/60 border border-zinc-800/80">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-zinc-200">12. Skill Token Stacking</span>
+                    <p className="text-zinc-400 text-[11px]">Allow stacking of Assassination, Raid, and Subterfuge skill tokens</p>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">
+                    {engine.config.allowDuplicateSkillTokens ? 'Stacking Allowed' : 'No Duplicates'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      engine.config.allowDuplicateSkillTokens = true;
+                      onRefresh();
+                    }}
+                    className={`px-3 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      engine.config.allowDuplicateSkillTokens
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    1. Allow Stacking (Standard Rule)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      engine.config.allowDuplicateSkillTokens = false;
+                      onRefresh();
+                    }}
+                    className={`px-3 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      !engine.config.allowDuplicateSkillTokens
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    2. Disallow Duplicate Skills
                   </button>
                 </div>
               </div>

@@ -199,14 +199,14 @@ export const InlineDefensePanel: React.FC<InlineDefensePanelProps> = ({
   // If target is specified and defending against assassination, calculate target's innate defense
   const isAss = threatType === 'ass';
   const targetAlreadyInDefenders = targetCard ? selectedDefenderIds.includes(targetCard.id) : false;
-  const isTargetExh = targetCard?.exhausted ?? false;
   const targetCanDefendSpecial = !isSpecialAbilityAttack || (targetCard && (
     targetCard.isIntercept || targetCard.isInterrupt ||
     (targetCard.abilityText && AbilityParserService.getInstance().parseAbility(targetCard.abilityText).isIntercept)
   ));
-  const targetInnateDef = (isAss && targetCard && !targetAlreadyInDefenders && targetCanDefendSpecial)
-    ? ((targetCard.def || 1) + (targetCard.tempDefenseBuff || 0) + (targetCard.defendingDefenseBuff || 0) + (targetCard.operationDefenseBuff || 0) + engine.getCardStatTokensBuff(targetCard) + (isTargetExh ? 0 : (targetCard.ass || 0)))
-    : 0;
+  const targetCalc = (isAss && targetCard && !targetAlreadyInDefenders && targetCanDefendSpecial)
+    ? engine.calculateOperativeDefense(targetCard, 'ass')
+    : null;
+  const targetInnateDef = targetCalc ? targetCalc.totalDef : 0;
 
   // Defenders defense contribution
   const selectedOps = eligibleReadyOps.filter(c => selectedDefenderIds.includes(c.id));

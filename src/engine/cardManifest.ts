@@ -492,7 +492,7 @@ export const MASTER_MISSIONS: Mission[] = [
     req: 3,
     points: 4,
     tokens: { P1: 0, P2: 0 },
-    description: 'Perform 3 different operations (Assassinate, Raid, Subterfuge) in 1 turn.'
+    description: 'Successfully complete 3 different operations (Assassinate, Raid, Subterfuge) in 1 turn.'
   },
   {
     id: 'mis_big_spender',

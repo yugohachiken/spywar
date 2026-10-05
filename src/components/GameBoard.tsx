@@ -198,7 +198,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingDefense, setPendingDefense] = useState<PendingDefenseState | null>(null);
   const [interruptWindowState, setInterruptWindowState] = useState<InterruptWindowState | null>(null);
-  const [isGameStarted, setIsGameStarted] = useState(engine.currentRound > 0);
+  const [isGameStarted, setIsGameStarted] = useState(() => {
+    const saved = localStorage.getItem('spywar_active_match_session');
+    return !!saved && engine.actionCounter > 0;
+  });
+  const [isFlippingCards, setIsFlippingCards] = useState(false);
+  const isInitialFaceDown = !isGameStarted && engine.config.initialCardsState === 'FACE_DOWN';
   const [recentOperation, setRecentOperation] = useState<RecentOperationState | null>(null);
   const autoAiTimerRef = useRef<NodeJS.Timeout | null>(null);
   const recentOpTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1149,12 +1154,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
 
   const handleStartGame = () => {
     if (engine.gameOver || isGameStarted) return;
+    if (engine.config.initialCardsState === 'FACE_DOWN') {
+      setIsFlippingCards(true);
+      setTimeout(() => {
+        setIsFlippingCards(false);
+      }, 700);
+    }
     setIsGameStarted(true);
     const active = engine.getActivePlayer();
     engine.log(
       active.pid,
       'GAME-START',
-      `▶️ Match Started! ${active.name} (${active.pid}) has initiative for Round 1.`
+      `▶️ Match Started! Initial cards flipped face up. ${active.name} (${active.pid}) has initiative for Round 1.`
     );
     onRefresh();
   };
@@ -1163,6 +1174,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const handleManualTriggerAi = () => {
     if (engine.gameOver || aiThinking || pendingDefense) return;
     if (!isGameStarted) {
+      if (engine.config.initialCardsState === 'FACE_DOWN') {
+        setIsFlippingCards(true);
+        setTimeout(() => setIsFlippingCards(false), 700);
+      }
       setIsGameStarted(true);
     }
     executeAiStep();
@@ -1171,6 +1186,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
   const handleResetGame = () => {
     localStorage.removeItem('spywar_active_match_session');
     setIsGameStarted(false);
+    setIsFlippingCards(false);
     setRecentOperation(null);
     if (recentOpTimerRef.current) clearTimeout(recentOpTimerRef.current);
     const shouldAuto = gameMode === 'human_vs_ai' || gameMode === 'ai_vs_ai';
@@ -1543,7 +1559,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
             id="btn-settings-config"
             onClick={() => setShowConfigModal(true)}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors border border-zinc-700/60"
-            title="Configure Game Rules & Simulation Parameters (8 Settings)"
+            title="Configure Game Rules & Simulation Parameters (13 Settings)"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Settings</span>
@@ -1585,11 +1601,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 ? 'Match is currently in progress'
                 : engine.gameOver
                 ? 'Match concluded'
+                : isInitialFaceDown
+                ? `Start Match & Reveal Cards (${activePlayer.name} has initiative)`
                 : `Start Match (${activePlayer.name} has initiative)`
             }
           >
             <Play className={`w-3.5 h-3.5 ${!isGameStarted && !engine.gameOver ? 'fill-white text-white' : 'text-zinc-500'}`} />
-            <span>{isGameStarted ? 'Started' : 'Start'}</span>
+            <span>{isGameStarted ? 'Started' : isInitialFaceDown ? 'Start (Flip Cards)' : 'Start'}</span>
           </button>
         </div>
       </div>
@@ -1627,7 +1645,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
           <div className="flex items-center gap-2">
             <span className="text-emerald-400 text-[11px] font-mono flex items-center gap-1.5 font-semibold bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded-lg shadow-sm">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-              Match Initialized &mdash; Click &quot;Start&quot; to begin ({activePlayer.name} has initiative)
+              {isInitialFaceDown
+                ? `Initial cards dealt Face Down — Click "Start" to flip cards face up (${activePlayer.name} has initiative)`
+                : `Match Initialized — Click "Start" to begin (${activePlayer.name} has initiative)`}
             </span>
           </div>
         ) : activePlayer.isAI && !engine.gameOver ? (
@@ -1697,9 +1717,48 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {engine.missionsOnTable.map(mission => {
+          {engine.missionsOnTable.map((mission, mIdx) => {
             const missionItem = { ...mission, type: 'Mission' as const };
             const isHighlighted = highlightedItem?.id === mission.id;
+
+            if (isInitialFaceDown) {
+              return (
+                <div
+                  key={mission.id || mIdx}
+                  className={`p-3 rounded-lg bg-gradient-to-br from-zinc-950 via-slate-950 to-zinc-900 border-2 border-emerald-500/40 shadow-xl flex flex-col justify-between min-h-[110px] select-none relative overflow-hidden transition-all duration-500 ${
+                    isFlippingCards ? 'scale-95 rotate-y-90 opacity-80' : 'hover:border-emerald-400/80 hover:shadow-emerald-500/10'
+                  }`}
+                >
+                  <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:10px_10px] pointer-events-none" />
+                  <div className="absolute inset-1.5 border border-dashed border-emerald-500/30 rounded pointer-events-none" />
+                  <div className="flex items-center justify-between text-[9px] font-mono text-emerald-400 z-10 border-b border-zinc-800 pb-1">
+                    <span className="flex items-center gap-1 font-bold tracking-wider">
+                      <Shield className="w-3 h-3 text-emerald-400" />
+                      TOP SECRET
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/30 text-[8px] font-bold">
+                      CLASSIFIED MISSION
+                    </span>
+                  </div>
+                  <div className="my-auto py-2 text-center z-10">
+                    <span className="block font-black font-mono tracking-widest text-xs text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-300 to-emerald-400">
+                      MISSION DIRECTIVE #{mIdx + 1}
+                    </span>
+                    <span className="block font-mono text-[9px] text-zinc-400 mt-0.5">
+                      Classified Objective • Sealed until Match Start
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-mono text-zinc-500 z-10 pt-1 border-t border-zinc-800">
+                    <span>SECTOR OBJECTIVE</span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-ping" />
+                      FACE DOWN
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={mission.id}
@@ -1893,6 +1952,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               <CardView
                 card={topPlayer.affiliation}
                 compact
+                isFaceDown={isInitialFaceDown}
+                isFlipping={isFlippingCards}
                 selected={isAffiliationTarget || isAffiliationAttacker || isAffiliationDefender || selectedCard?.id === topPlayer.affiliation.id}
                 selectionRole={affRole}
                 selectionBadge={affBadge}
@@ -2005,6 +2066,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 key={card.id}
                 card={card}
                 compact
+                isFaceDown={isInitialFaceDown}
+                isFlipping={isFlippingCards}
                 selected={isSelected}
                 selectionRole={role}
                 selectionBadge={badge}
@@ -2177,8 +2240,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               return (
                 <CardView
                   card={bottomPlayer.affiliation}
+                  isFaceDown={isInitialFaceDown}
+                  isFlipping={isFlippingCards}
                   selected={selectedCard?.id === bottomPlayer.affiliation.id || pendingTargetSelection?.sourceCard.id === bottomPlayer.affiliation.id}
-                  isPlayable={!bottomPlayer.affiliation.exhausted && (!isOnline || isMyTurn)}
+                  isPlayable={!isInitialFaceDown && !bottomPlayer.affiliation.exhausted && (!isOnline || isMyTurn)}
                   playLabel={playLabel}
                   onPlay={() => {
                     const targetActs = legalActions.filter(a => (a.type === 'TAP_ABILITY' || a.type === 'DYNAMIC_ABILITY') && a.cardId === bottomPlayer.affiliation?.id && a.targetId);
@@ -2292,6 +2357,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
+                  isFaceDown={isInitialFaceDown}
+                  isFlipping={isFlippingCards}
                   selected={isAttacker || isDefender || isTarget || selectedCard?.id === card.id || hasEligibleAct || isOffTurnInterruptEligible}
                   selectionRole={role}
                   selectionBadge={badge}
@@ -2451,7 +2518,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               const offTurnCand = isOffTurnDef ? offTurnInterruptCandidates.find(c => c.card.id === card.id) : null;
               const isOffTurnInterruptEligible = !!offTurnCand && offTurnCand.hasEnoughCoins;
 
-              const isPlayable = !mustDiscardExcess && (
+              const isPlayable = !isInitialFaceDown && !mustDiscardExcess && (
                 ((!isOnline || isMyTurn) && (isCardTypeMatch || (!hasPendingFree && isAffordable))) ||
                 isOffTurnInterruptEligible
               );
@@ -2460,6 +2527,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                 <CardView
                   key={card.id}
                   card={card}
+                  isFaceDown={isInitialFaceDown}
+                  isFlipping={isFlippingCards}
                   isPlayable={isPlayable}
                   playLabel={
                     isOffTurnInterruptEligible
@@ -2981,13 +3050,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
               Download Log
             </button>
           </div>
-          <span className="text-[11px] text-zinc-500">Round.Action.PlayerID: [CODE] Details [Coins: Total (Turn: X, Stored: Y)]</span>
+          <span className="text-[11px] text-zinc-500">[Player] Round.Action: [CODE] Details [Coins: Total (Turn: X, Stored: Y)]</span>
         </div>
         <div className="max-h-44 overflow-y-auto font-mono text-xs space-y-1 pt-1 select-text">
           {engine.logs.map(log => (
             <div key={log.id} className="text-zinc-300 flex items-start gap-1.5 leading-snug">
+              <span className={`px-1 py-0.2 rounded text-[10px] font-bold shrink-0 font-mono border ${
+                log.pid === 'P1'
+                  ? 'bg-blue-950/80 text-blue-300 border-blue-500/50'
+                  : 'bg-rose-950/80 text-rose-300 border-rose-500/50'
+              }`}>
+                {log.pid}
+              </span>
               <span className="text-zinc-500 shrink-0">
-                {log.round}.{log.actionNumber}.{log.pid}:
+                {log.round}.{log.actionNumber}:
               </span>
               <span className={`font-bold shrink-0 ${
                 log.code.includes('THWART') ? 'text-emerald-400' :
@@ -3351,6 +3427,49 @@ export const GameBoard: React.FC<GameBoardProps> = ({ engine, onRefresh, onNavig
                     }`}
                   >
                     2. Disallow Duplicate Skills
+                  </button>
+                </div>
+              </div>
+
+              {/* 13. Initial Cards Deal State */}
+              <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-zinc-950/60 border border-zinc-800/80">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-zinc-200">13. Initial Cards Deal State</span>
+                    <p className="text-zinc-400 text-[11px]">Choose whether initial cards are dealt Face Up or Face Down at match setup</p>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">
+                    {engine.config.initialCardsState === 'FACE_DOWN' ? 'Face Down (Classified)' : 'Face Up (Standard)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      engine.config.initialCardsState = 'FACE_UP';
+                      onRefresh();
+                    }}
+                    className={`px-3 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      engine.config.initialCardsState !== 'FACE_DOWN'
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    1. Face Up (Standard Deal)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      engine.config.initialCardsState = 'FACE_DOWN';
+                      onRefresh();
+                    }}
+                    className={`px-3 py-1.5 rounded text-xs font-mono transition-all text-center ${
+                      engine.config.initialCardsState === 'FACE_DOWN'
+                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    2. Face Down (Classified Deal)
                   </button>
                 </div>
               </div>

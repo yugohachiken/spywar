@@ -642,7 +642,6 @@ func execute_action(action_dict: Dictionary) -> bool:
 
 			# Standard Combat: Assassinate with Defensive Bodyguard Intercept
 			if op_type == "ass":
-				player.unique_operations_this_turn["ass"] = true
 				var target: CardData = action_dict.get("target")
 				var interceptor = find_defensive_interceptor(opponent, "ass")
 				if interceptor:
@@ -653,6 +652,7 @@ func execute_action(action_dict: Dictionary) -> bool:
 					var eff_atk = card.get_effective_offense()
 					var eff_def = target.get_effective_defense(true)
 					if eff_atk > eff_def:
+						player.unique_operations_this_turn["ass"] = true
 						opponent.battlefield.erase(target)
 						opponent.discard_pile.append(target)
 						player.eliminated_enemy_op_this_turn = true
@@ -663,7 +663,6 @@ func execute_action(action_dict: Dictionary) -> bool:
 
 			# Standard Combat: Raid with Defensive Firewall Intercept
 			if op_type == "raid":
-				player.unique_operations_this_turn["raid"] = true
 				var interceptor = find_defensive_interceptor(opponent, "raid")
 				if interceptor:
 					interceptor.is_exhausted = true
@@ -673,6 +672,7 @@ func execute_action(action_dict: Dictionary) -> bool:
 					var max_steal = 1 + card.skill_raid
 					var stolen = mini(opponent.get_total_spendable_coins(), max_steal)
 					if stolen > 0:
+						player.unique_operations_this_turn["raid"] = true
 						opponent.spend_coins(stolen)
 						player.current_turn_coins += stolen
 						player.raided_coins_this_turn += stolen
@@ -683,7 +683,6 @@ func execute_action(action_dict: Dictionary) -> bool:
 
 			# Standard Combat: Subterfuge with Defensive Counterintelligence Intercept
 			if op_type == "sub":
-				player.unique_operations_this_turn["sub"] = true
 				var interceptor = find_defensive_interceptor(opponent, "sub")
 				if interceptor:
 					interceptor.is_exhausted = true
@@ -698,6 +697,8 @@ func execute_action(action_dict: Dictionary) -> bool:
 							opponent.discard_pile.append(disc)
 							dropped_list.append(disc.card_name)
 							opponent.discarded_card_from_hand_this_turn = true
+					if dropped_list.size() > 0:
+						player.unique_operations_this_turn["sub"] = true
 					_log(player, "SUBTERFUGE", "%s forced %s to discard: %s." % [card.card_name, opponent.display_name, str(dropped_list)])
 					if opponent.hand.is_empty() and to_drop > 0:
 						mission_manager.add_mission_tokens(player, "hand_wipe", 1)

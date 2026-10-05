@@ -4,6 +4,7 @@ import { AbilityParserService } from '../services/abilityParserService';
 import { AbilityPresetService } from '../services/abilityPresetService';
 
 export type InitiativeRule = 'HIGHEST_PROD' | 'LOWEST_PROD' | 'RANDOM';
+export type InitialCardsState = 'FACE_UP' | 'FACE_DOWN';
 
 export interface EngineConfig {
   rounds: number;
@@ -17,6 +18,7 @@ export interface EngineConfig {
   maxMissionsInPlay: number;
   initiativeRule: InitiativeRule;
   allowDuplicateSkillTokens: boolean;
+  initialCardsState: InitialCardsState;
 }
 
 export const DEFAULT_CONFIG: EngineConfig = {
@@ -30,7 +32,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
   startingMissionCards: 1,
   maxMissionsInPlay: 0,
   initiativeRule: 'HIGHEST_PROD',
-  allowDuplicateSkillTokens: true
+  allowDuplicateSkillTokens: true,
+  initialCardsState: 'FACE_UP'
 };
 
 export interface MatchTelemetry {
@@ -563,7 +566,8 @@ export class SpywarEngine {
       rule === 'HIGHEST_PROD' ? 'Highest Affiliation Production' :
       rule === 'LOWEST_PROD' ? 'Lowest Affiliation Production' : 'Random Initiative';
 
-    this.log(firstPlayer.pid, 'SETUP', `Game initialized with '${this.activeDeckName}'. Initiative rule: [${ruleLabel}] -> Initiative awarded to ${firstPlayer.name} (${firstPlayer.affiliation?.name}, Prod: ${firstPlayer.affiliation?.production}) due to ${initiativeReason}. ${firstPlayer.name} goes first! (P1 is ${this.players[0].name}, P2 is ${this.players[1].name})`);
+    const cardDealLabel = this.config.initialCardsState === 'FACE_DOWN' ? 'Face Down (Classified Deal)' : 'Face Up (Standard)';
+    this.log(firstPlayer.pid, 'SETUP', `Game initialized with '${this.activeDeckName}'. Initial Cards: [${cardDealLabel}]. Initiative rule: [${ruleLabel}] -> Initiative awarded to ${firstPlayer.name} (${firstPlayer.affiliation?.name}, Prod: ${firstPlayer.affiliation?.production}) due to ${initiativeReason}. ${firstPlayer.name} goes first! (P1 is ${this.players[0].name}, P2 is ${this.players[1].name})`);
     this.startRound(1);
   }
 
@@ -3751,7 +3755,6 @@ export class SpywarEngine {
 
       // 4. Standard / Team Assassinate
       if (action.opType === 'ass') {
-        player.telemetry.uniqueOpTypesThisTurn.add('ass');
         const targetId = action.targetId || action.targetCard?.id;
         const liveTarget = opponent.battlefield.find(c => c.id === targetId) || action.targetCard!;
         const target = liveTarget;
@@ -3806,6 +3809,7 @@ export class SpywarEngine {
           // Success: Defending cards discarded (target + defending operatives)
           discardFromBattlefield(opponent, target);
           player.telemetry.eliminatedEnemyOpThisTurn = true;
+          player.telemetry.uniqueOpTypesThisTurn.add('ass');
           this.placeMissionTokens(player, 'kills', 1);
 
           for (const d of defRes.defenders) {
@@ -3823,6 +3827,7 @@ export class SpywarEngine {
           // Success with mutual destruction: Both Attacker and Defender cards discarded
           discardFromBattlefield(opponent, target);
           player.telemetry.eliminatedEnemyOpThisTurn = true;
+          player.telemetry.uniqueOpTypesThisTurn.add('ass');
           this.placeMissionTokens(player, 'kills', 1);
 
           for (const d of defRes.defenders) {
@@ -3853,8 +3858,6 @@ export class SpywarEngine {
 
       // 5. Standard / Team Raid
       if (action.opType === 'raid') {
-        player.telemetry.uniqueOpTypesThisTurn.add('raid');
-
         let totalRaidOff = 0;
         let totalRaidSkill = 0;
         const atkBreakdowns: string[] = [];
@@ -3888,6 +3891,7 @@ export class SpywarEngine {
         // - Attacker == Defender: Raid is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
         // - Attacker < Defender: Raid is Thwarted, Attacking Operative cards are discarded.
         if (totalRaidOff > effectiveDef) {
+          player.telemetry.uniqueOpTypesThisTurn.add('raid');
           const target = action.targetCard;
           let stolen = 0;
           const maxTake = attackers.length + totalRaidSkill;
@@ -3936,8 +3940,6 @@ export class SpywarEngine {
 
       // 6. Standard / Team Subterfuge
       if (action.opType === 'sub') {
-        player.telemetry.uniqueOpTypesThisTurn.add('sub');
-
         let totalSubOff = 0;
         let totalSubSkill = 0;
         const atkBreakdowns: string[] = [];
@@ -3972,6 +3974,7 @@ export class SpywarEngine {
         // - Attacker == Defender: Subterfuge is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
         // - Attacker < Defender: Subterfuge is Thwarted, Attacking Operative cards are discarded.
         if (totalSubOff > effectiveDef) {
+          player.telemetry.uniqueOpTypesThisTurn.add('sub');
           const maxDiscards = attackers.length + totalSubSkill;
           const cardsToDrop = Math.min(opponent.hand.length, maxDiscards);
           const dropped: string[] = [];
@@ -4844,7 +4847,7 @@ export class SpywarEngine {
       `=============================================================`,
       `SPYWAR - MATCH NOTATION & EVENT LOG STREAM`,
       `Exported: ${timestamp}`,
-      `Config: Rounds=${this.config.rounds} | Draw/Turn=${this.config.cardsDrawnPerTurn} | MaxHand=${this.config.maxHandSize} | PointsToWin=${this.config.pointsToWin} | CoinCap=${this.config.affiliationMaxCap} | OpSummonState=${this.config.operativeSummonState} | LocSummonState=${this.config.locationSummonState} | StartMissions=${this.config.startingMissionCards} | MaxMissions=${this.config.maxMissionsInPlay === 0 ? 'No Max' : this.config.maxMissionsInPlay}`,
+      `Config: Rounds=${this.config.rounds} | Draw/Turn=${this.config.cardsDrawnPerTurn} | MaxHand=${this.config.maxHandSize} | PointsToWin=${this.config.pointsToWin} | CoinCap=${this.config.affiliationMaxCap} | OpSummonState=${this.config.operativeSummonState} | LocSummonState=${this.config.locationSummonState} | StartMissions=${this.config.startingMissionCards} | MaxMissions=${this.config.maxMissionsInPlay === 0 ? 'No Max' : this.config.maxMissionsInPlay} | InitialCards=${this.config.initialCardsState || 'FACE_UP'}`,
       `Players: P1=${this.players[0].name} (${this.players[0].affiliation?.name}) | P2=${this.players[1].name} (${this.players[1].affiliation?.name})`,
       `Game Over: ${this.gameOver} | Winner: ${this.winner?.name || 'None'} | Reason: ${this.winReason || 'In Progress'}`,
       `Mission Points: P1=${this.players[0].mission_points} | P2=${this.players[1].mission_points}`,
@@ -4854,9 +4857,13 @@ export class SpywarEngine {
       `--- EVENT LOG STREAM ---`,
     ];
 
-    const entries = this.logs.map(log => {
+    // Export in chronological order (Action 1 to N) so the match log reads sequentially
+    const chronologicalLogs = [...this.logs].sort((a, b) => a.actionNumber - b.actionNumber);
+
+    const entries = chronologicalLogs.map(log => {
       const time = new Date(log.timestamp).toLocaleTimeString();
-      return `[${time}] ${log.round}.${log.actionNumber}.${log.pid}: [${log.code}] ${log.details} [${log.balanceStr}]`;
+      const playerTag = log.pid || 'P1';
+      return `[${playerTag}] [${time}] ${log.round}.${log.actionNumber}.${playerTag}: [${log.code}] ${log.details} [${log.balanceStr}]`;
     });
 
     return [...header, ...entries].join('\n');

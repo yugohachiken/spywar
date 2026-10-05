@@ -15,6 +15,8 @@ interface CardViewProps {
   selectionBadge?: string;
   compact?: boolean;
   playLabel?: string;
+  isFaceDown?: boolean;
+  isFlipping?: boolean;
 }
 
 export const CardView: React.FC<CardViewProps> = ({
@@ -28,11 +30,70 @@ export const CardView: React.FC<CardViewProps> = ({
   selectionRole,
   selectionBadge,
   compact = false,
-  playLabel
+  playLabel,
+  isFaceDown = false,
+  isFlipping = false
 }) => {
   const { setHighlightedItem, clearHighlightedItem, openZoom, highlightedItem } = useCardZoom();
   const isExhausted = card.exhausted;
   const isCurrentlyHighlighted = highlightedItem?.id === card.id;
+
+  // Face Down Classified Card Back
+  if (isFaceDown) {
+    return (
+      <div
+        tabIndex={0}
+        role="img"
+        aria-label="Classified Card (Face Down). Click Start to flip face up."
+        onClick={onClick}
+        className={`relative select-none transition-all duration-500 rounded-lg p-2.5 flex flex-col justify-between bg-gradient-to-br from-zinc-950 via-slate-950 to-zinc-900 border-2 border-amber-500/40 shadow-xl overflow-hidden ${
+          compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'
+        } ${isFlipping ? 'scale-95 rotate-y-90 opacity-80' : 'hover:border-amber-400/80 hover:shadow-amber-500/10'}`}
+      >
+        {/* Subtle microdot tactical pattern background */}
+        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:10px_10px] pointer-events-none" />
+        
+        {/* Outer security perimeter border */}
+        <div className="absolute inset-1.5 border border-dashed border-amber-500/30 rounded pointer-events-none" />
+
+        {/* Top Classification Banner */}
+        <div className="w-full flex items-center justify-between text-[9px] font-mono text-amber-400/90 z-10 px-1 pt-0.5 border-b border-zinc-800/80 pb-1">
+          <span className="flex items-center gap-1 font-bold tracking-wider">
+            <Shield className="w-3 h-3 text-amber-400" />
+            TOP SECRET
+          </span>
+          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[8px] tracking-widest text-amber-300 font-bold">
+            CLASSIFIED
+          </span>
+        </div>
+
+        {/* Center Insignia / Spy Seal */}
+        <div className="my-auto flex flex-col items-center justify-center gap-1.5 z-10">
+          <div className="w-12 h-12 rounded-full bg-zinc-900/90 border-2 border-amber-500/60 flex items-center justify-center shadow-lg shadow-amber-950/60 relative group-hover:scale-105 transition-transform">
+            <Eye className="w-6 h-6 text-amber-400 animate-pulse" />
+            <div className="absolute -inset-1 rounded-full border border-amber-400/30 animate-spin [animation-duration:12s]" />
+          </div>
+          <div className="space-y-0.5 text-center">
+            <span className="block font-black font-mono tracking-widest text-sm text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-200">
+              SPYWAR
+            </span>
+            <span className="block font-mono text-[9px] text-zinc-400 tracking-wider uppercase">
+              {card.type === 'Affiliation' ? 'Affiliation Seal' : 'Classified Asset'}
+            </span>
+          </div>
+        </div>
+
+        {/* Bottom Security Footer */}
+        <div className="w-full pt-1 border-t border-zinc-800/80 flex items-center justify-between text-[8px] font-mono text-zinc-400 z-10 px-1">
+          <span className="text-zinc-500">LEVEL-5</span>
+          <span className="text-amber-400 font-bold flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block animate-ping" />
+            FACE DOWN
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   const getTypeBadgeColor = () => {
     switch (card.type) {
@@ -84,9 +145,9 @@ export const CardView: React.FC<CardViewProps> = ({
       onMouseLeave={() => clearHighlightedItem(card)}
       onFocus={() => setHighlightedItem(card)}
       onClick={onClick || (isPlayable ? onPlay : undefined)}
-      className={`relative group select-none transition-all duration-200 rounded-lg p-2.5 flex flex-col justify-between bg-zinc-900/90 backdrop-blur-sm border outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${getBorderColor()} ${
+      className={`relative group select-none transition-all duration-300 rounded-lg p-2.5 flex flex-col justify-between bg-zinc-900/90 backdrop-blur-sm border outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${getBorderColor()} ${
         isExhausted && !selected && !selectionRole ? 'opacity-60 saturate-50 translate-y-0.5' : isExhausted ? 'translate-y-0.5' : ''
-      } ${compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'}`}
+      } ${compact ? 'w-36 h-48 text-xs' : 'w-44 h-56 text-xs'} ${isFlipping ? 'animate-in fade-in zoom-in-90 duration-500' : ''}`}
     >
       {/* Selection Role / Multi-Select Badge */}
       {selectionBadge && (
@@ -262,6 +323,15 @@ export const CardView: React.FC<CardViewProps> = ({
               ⏳ Discard Token
             </span>
           )}
+          {card.appliedTokens && card.appliedTokens.filter(t => t.startsWith('skill_')).map((token, tIdx) => {
+            const skName = token === 'skill_ass' ? 'ASS Token' : token === 'skill_raid' ? 'RAID Token' : 'SUB Token';
+            const skColor = token === 'skill_ass' ? 'bg-rose-900/90 text-rose-200 border-rose-500/70' : token === 'skill_raid' ? 'bg-amber-900/90 text-amber-200 border-amber-500/70' : 'bg-purple-900/90 text-purple-200 border-purple-500/70';
+            return (
+              <span key={tIdx} className={`flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold shadow-sm border ${skColor}`} title={`+1 ${skName} bestowed by special ability`}>
+                ✨ +1 {skName}
+              </span>
+            );
+          })}
           {(card.ass || 0) > 0 && (
             <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-rose-950/80 text-rose-300 border border-rose-800/50">
               <Skull className="w-2.5 h-2.5" /> Ass:{card.ass}

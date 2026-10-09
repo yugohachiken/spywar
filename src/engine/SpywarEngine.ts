@@ -720,8 +720,11 @@ export class SpywarEngine {
       this.placeMissionTokens(player, 'no_ops', 1);
     }
 
-    // Check "Testing the Waters": 3 different operations in 1 turn
-    if (player.telemetry.uniqueOpTypesThisTurn.size >= 3) {
+    // Check "Testing the Waters": 3 different operations in 1 turn (Assassinate, Raid, Subterfuge)
+    const hasAss = player.telemetry.uniqueOpTypesThisTurn.has('ass');
+    const hasRaid = player.telemetry.uniqueOpTypesThisTurn.has('raid');
+    const hasSub = player.telemetry.uniqueOpTypesThisTurn.has('sub');
+    if (hasAss && hasRaid && hasSub) {
       this.placeMissionTokens(player, 'ops_in_turn', 1);
     }
 
@@ -3689,6 +3692,7 @@ export class SpywarEngine {
           opponent.battlefield.splice(tIdx, 1);
           opponent.discard_pile.push(target);
           player.telemetry.eliminatedEnemyOpThisTurn = true;
+          player.telemetry.uniqueOpTypesThisTurn.add('ass');
           this.log(player.pid, 'BOKSOON-EXECUTE', `Boksoon executed targeted assassination on ${target.name} (Assassin skill >= 1). Target destroyed!`);
           this.placeMissionTokens(player, 'kills', 1);
           this.cleanupDefendingTokens(opponent, defRes.defenders);
@@ -3891,7 +3895,6 @@ export class SpywarEngine {
         // - Attacker == Defender: Raid is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
         // - Attacker < Defender: Raid is Thwarted, Attacking Operative cards are discarded.
         if (totalRaidOff > effectiveDef) {
-          player.telemetry.uniqueOpTypesThisTurn.add('raid');
           const target = action.targetCard;
           let stolen = 0;
           const maxTake = attackers.length + totalRaidSkill;
@@ -3903,6 +3906,7 @@ export class SpywarEngine {
           if (stolen > 0) {
             player.current_turn_coins += stolen;
             player.telemetry.raidedCoinsThisTurn += stolen;
+            player.telemetry.uniqueOpTypesThisTurn.add('raid');
             this.placeMissionTokens(player, 'res_theft', stolen);
           }
 
@@ -3974,7 +3978,6 @@ export class SpywarEngine {
         // - Attacker == Defender: Subterfuge is Thwarted. All Operative cards (both Attackers and Defenders) are discarded.
         // - Attacker < Defender: Subterfuge is Thwarted, Attacking Operative cards are discarded.
         if (totalSubOff > effectiveDef) {
-          player.telemetry.uniqueOpTypesThisTurn.add('sub');
           const maxDiscards = attackers.length + totalSubSkill;
           const cardsToDrop = Math.min(opponent.hand.length, maxDiscards);
           const dropped: string[] = [];
@@ -3985,6 +3988,10 @@ export class SpywarEngine {
               dropped.push(c.name);
               opponent.telemetry.discardedCardFromHandThisTurn = true;
             }
+          }
+
+          if (dropped.length > 0) {
+            player.telemetry.uniqueOpTypesThisTurn.add('sub');
           }
 
           // Defending operatives are discarded
@@ -4863,7 +4870,7 @@ export class SpywarEngine {
     const entries = chronologicalLogs.map(log => {
       const time = new Date(log.timestamp).toLocaleTimeString();
       const playerTag = log.pid || 'P1';
-      return `[${playerTag}] [${time}] ${log.round}.${log.actionNumber}.${playerTag}: [${log.code}] ${log.details} [${log.balanceStr}]`;
+      return `${playerTag} | [${time}] Round ${log.round} Act ${log.actionNumber}: [${log.code}] ${log.details} ${log.balanceStr}`;
     });
 
     return [...header, ...entries].join('\n');

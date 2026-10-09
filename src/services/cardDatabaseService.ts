@@ -1,4 +1,5 @@
-import { Card, Mission } from '../types/spywar';
+import { Card, Mission, DeckPreset } from '../types/spywar';
+export type { DeckPreset };
 import { 
   AFFILIATION_CARDS, 
   LOCATION_CARDS, 
@@ -7,18 +8,10 @@ import {
   MASTER_MISSIONS 
 } from '../engine/cardManifest';
 import { EngineConfig, DEFAULT_CONFIG } from '../engine/SpywarEngine';
-
-export interface DeckPreset {
-  id: string;
-  name: string;
-  description: string;
-  isBuiltIn?: boolean;
-  cardQuantities: Record<string, number>; // cardId -> quantity in deck
-  enabledAffiliations: string[]; // affiliation card IDs allowed to draft
-  startingMissions?: number;
-}
+import { DEFAULT_DATABASE_PAYLOAD } from '../data/defaultCardsPayload';
 
 const STORAGE_KEYS = {
+  DB_VERSION: 'spywar_db_build_release_10082026',
   CARDS: 'spywar_custom_cards_v1',
   DELETED_ORIGINALS: 'spywar_deleted_original_ids_v1',
   ACTIVE_DECK: 'spywar_active_deck_v1',
@@ -26,40 +19,28 @@ const STORAGE_KEYS = {
   GAME_CONFIG: 'spywar_game_config_v1',
 };
 
-export const ORIGINAL_CARD_IDS = new Set<string>([
-  ...AFFILIATION_CARDS.map(c => c.id),
-  ...LOCATION_CARDS.map(c => c.id),
-  ...OPERATIVE_CARDS.map(c => c.id),
-  ...SUPPORT_CARDS.map(c => c.id),
-  ...MASTER_MISSIONS.map(m => m.id),
-]);
+export const ORIGINAL_CARD_IDS = new Set<string>(
+  DEFAULT_DATABASE_PAYLOAD.cards.filter(c => c.isOriginal).map(c => c.id)
+);
 
 export function isOriginalCard(id: string): boolean {
   return ORIGINAL_CARD_IDS.has(id);
 }
 
-// Base factory cards copy with isOriginal: true
+// Base factory cards copy with default payload cards
 export function getFactoryCards(): Card[] {
-  return [
-    ...AFFILIATION_CARDS.map(c => ({ ...c, isOriginal: true })),
-    ...LOCATION_CARDS.map(c => ({ ...c, isOriginal: true })),
-    ...OPERATIVE_CARDS.map(c => ({ ...c, isOriginal: true })),
-    ...SUPPORT_CARDS.map(c => ({ ...c, isOriginal: true })),
-    ...MASTER_MISSIONS.map(m => ({
-      id: m.id,
-      name: m.name,
-      type: 'Mission' as const,
-      cost: 0,
-      points: m.points,
-      req: m.req,
-      missionType: m.type,
-      abilityText: m.description,
-      isOriginal: true,
-    })),
-  ];
+  return DEFAULT_DATABASE_PAYLOAD.cards.map(c => ({ ...c }));
 }
 
 export const BUILT_IN_PRESETS: DeckPreset[] = [
+  {
+    ...DEFAULT_DATABASE_PAYLOAD.activeDeck,
+    isBuiltIn: true,
+  },
+  ...DEFAULT_DATABASE_PAYLOAD.presets.map(p => ({
+    ...p,
+    isBuiltIn: true,
+  })),
   {
     id: 'preset_standard',
     name: 'Official Standard',
@@ -172,10 +153,28 @@ export class CardDatabaseService {
   private gameConfig: EngineConfig = { ...DEFAULT_CONFIG };
 
   private constructor() {
+    this.checkDatabaseVersionMigration();
     this.loadCards();
     this.loadPresets();
     this.loadActiveDeck();
     this.loadGameConfig();
+  }
+
+  private checkDatabaseVersionMigration() {
+    try {
+      const CURRENT_VERSION = 'v2_public_release_10082026';
+      const storedVersion = localStorage.getItem(STORAGE_KEYS.DB_VERSION);
+      if (storedVersion !== CURRENT_VERSION) {
+        localStorage.setItem(STORAGE_KEYS.DB_VERSION, CURRENT_VERSION);
+        localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(DEFAULT_DATABASE_PAYLOAD.cards));
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_DECK, JSON.stringify(DEFAULT_DATABASE_PAYLOAD.activeDeck));
+        localStorage.setItem(STORAGE_KEYS.PRESETS, JSON.stringify(DEFAULT_DATABASE_PAYLOAD.presets));
+        localStorage.removeItem(STORAGE_KEYS.DELETED_ORIGINALS);
+        localStorage.removeItem('spywar_active_match_session');
+      }
+    } catch (e) {
+      console.warn('Migration error:', e);
+    }
   }
 
   public static getInstance(): CardDatabaseService {

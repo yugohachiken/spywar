@@ -489,10 +489,10 @@ export const MASTER_MISSIONS: Mission[] = [
     id: 'mis_testing',
     name: 'Testing the Waters',
     type: 'ops_in_turn',
-    req: 3,
+    req: 1,
     points: 4,
     tokens: { P1: 0, P2: 0 },
-    description: 'Successfully complete 3 different operations (Assassinate, Raid, Subterfuge) in 1 turn.'
+    description: 'Perform 3 different operations (Assassinate, Raid, Subterfuge) in 1 turn.'
   },
   {
     id: 'mis_big_spender',

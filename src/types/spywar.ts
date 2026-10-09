@@ -54,6 +54,16 @@ export interface Card {
   version?: number;
 }
 
+export interface DeckPreset {
+  id: string;
+  name: string;
+  description: string;
+  isBuiltIn?: boolean;
+  cardQuantities: Record<string, number>; // cardId -> quantity in deck
+  enabledAffiliations: string[]; // affiliation card IDs allowed to draft
+  startingMissions?: number;
+}
+
 export interface Mission {
   id: string;
   name: string;
